@@ -40,20 +40,20 @@ flowchart TD
 
 ## Sidebar and navigation
 
-The side panel is narrow, so navigation should use icon-only tabs with accessible tooltips and labels for screen readers. The active tab must be visually distinct. Keep the current areas and add Timing Settings:
+The side panel is narrow, so navigation uses icon-only tabs with hover/focus tooltips and accessible labels for screen readers. The active tab is visually distinct. Keep the current areas and add Timing Settings:
 
 | Tab | Icon concept | Purpose |
 |---|---|---|
 | Workspace | grid/briefcase | Import tasks, manage batches, and run the guided workflow |
 | History | clock/stack | Review saved chats, reports, executions, and events |
-| Settings | gear | Configure permissions, repository prompts, bridge, and local data |
+| Permissions | access/diamond | Review and request optional ChatGPT, GitHub API, clipboard, and active-tab access |\n| Settings | gear | Configure repository prompts, view local error logs, and manage local data |
 | Timing Settings | clock sliders | Configure task timing and scheduling behavior |
 
 Icons need descriptive tooltip text on hover and keyboard focus. Do not rely on color alone to indicate the active tab.
 
 ## Guided workflow layout
 
-The Workspace should guide the user through the lifecycle as a wizard instead of making them scroll to find actions. Keep the primary lifecycle actions together at the top of the workspace in a compact action area. Show the current step, its status, the next available action, and any blocking reason. Make actions available only when their preconditions are met.
+The Workspace has a compact step navigator at the top for Import, Approve plan, Monitor, and Work & review. Selecting a step jumps directly to that section so users do not have to search through the full page. Keep the main action controls grouped in the relevant step and gate them on their existing prerequisites. The navigator is a navigation aid; the underlying workspace remains a single page.
 
 Suggested step order:
 
