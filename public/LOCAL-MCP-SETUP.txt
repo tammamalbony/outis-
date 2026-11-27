@@ -1,0 +1,10 @@
+AgentSync local MCP bridge
+
+Start Local MCP Test and open its dashboard at http://127.0.0.1:8765/.
+In Chrome, open chrome://extensions, turn on Developer mode, and choose Load unpacked. Select this package's chrome-mv3 folder. If AgentSync is already installed, replace its loaded files and use Reload.
+
+Open the AgentSync side panel and choose ChatGPT bridge. Pair this Chrome extension with the one-time code shown by the Local MCP Test dashboard. The extension calls only http://127.0.0.1:8765 and needs no tunnel or OpenAI inference API key.
+
+The Ongoing chats view checks browser tab presence every five seconds. When the A0 bridge is enabled, each registered ChatGPT chat is also checked every five seconds for the send arrow, Stop control, and voice/idle state; page changes trigger immediate checks. The view separates AgentSync task state from ChatGPT generation state and marks ChatGPT status as not verified if the bridge is off or the latest scan is stale. When a registered task chat finishes an assistant reply, AgentSync sends the response with its chat, team, agent, and execution identifiers to the local server as a data item. The server deduplicates retries by chat and message ID.
+
+Read stored replies in ChatGPT with the Local MCP Test tool get_extension_messages. The server dashboard's Recent activity also shows each incoming reply. The extension's ChatGPT bridge tab continues to poll the server queue for messages sent to Chrome.

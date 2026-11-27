@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Local MCP Bridge</title>
+  <style>
+    *{box-sizing:border-box}body{width:360px;margin:0;padding:16px;background:#f5f8f6;color:#17221e;font:14px/1.45 "Segoe UI",Arial,sans-serif}h1{font-size:18px;margin:0 0 4px}.muted{color:#68756f;font-size:12px}.status{padding:9px 11px;border-radius:9px;background:#e9f5ee;color:#16784f;margin:12px 0}.status.error{background:#fbeeee;color:#a33}.card{background:#fff;border:1px solid #e4eae6;border-radius:11px;padding:13px;margin:12px 0}label{display:block;font-size:12px;font-weight:600;margin:10px 0 5px}input,select,textarea{width:100%;border:1px solid #dce4df;border-radius:8px;padding:9px;font:inherit;background:white}textarea{min-height:80px;resize:vertical}button{border:0;border-radius:8px;background:#16784f;color:white;padding:9px 12px;font-weight:600;cursor:pointer;margin-top:10px}button.secondary{background:#eaf0ec;color:#17221e}.row{display:flex;gap:8px}.row>*{flex:1}.hidden{display:none!important}.items{max-height:220px;overflow:auto}.item{border-top:1px solid #edf1ee;padding:9px 0;overflow-wrap:anywhere}.item:first-child{border:0}.kind{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#16784f;font-weight:700}.payload{white-space:pre-wrap;margin-top:3px}.small{font-size:11px;color:#68756f}
+  </style>
+</head>
+<body>
+  <h1>Local MCP Bridge</h1><div class="muted">Messages, JSON data, and events with the local server</div>
+  <div id="status" class="status">Checking local server…</div>
+  <section id="pairCard" class="card hidden">
+    <div><strong>Pair this extension</strong></div><div class="muted">Copy the one-time code from the local dashboard.</div>
+    <label for="pairCode">Pairing code</label><input id="pairCode" autocomplete="off" spellcheck="false">
+    <button id="pairButton">Connect</button>
+  </section>
+  <section id="app" class="hidden">
+    <section class="card">
+      <strong>Send to server</strong>
+      <label for="kind">Item type</label><select id="kind"><option value="message">Message</option><option value="data">JSON data</option><option value="event">Named event</option></select>
+      <label id="nameLabel" for="name">Event name</label><input id="name" placeholder="example.updated">
+      <label id="payloadLabel" for="payload">Message</label><textarea id="payload" placeholder="Type a message"></textarea>
+      <button id="sendButton">Send to MCP server</button>
+    </section>
+    <section class="card"><strong>Received from MCP server</strong><div id="items" class="items"><div class="muted">No items received yet.</div></div></section>
+  </section>
+  <div id="notice" class="small"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

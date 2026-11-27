@@ -1,0 +1,32 @@
+# Optional only. Local verification is the default; do not dispatch if Actions is unavailable.
+name: Extension CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pnpm
+        run: npm install --global pnpm@10
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Core tests
+        run: pnpm test
+      - name: Parser tests
+        run: pnpm test:parser
+      - name: IndexedDB integration tests
+        run: pnpm test:integration
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Build
+        run: pnpm build

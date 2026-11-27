@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { auditManifest } from '../scripts/manifest-audit.mjs';
+const base = {manifest_version:3,permissions:['sidePanel','scripting','activeTab'],optional_permissions:['clipboardWrite'],optional_host_permissions:['https://chatgpt.com/*','https://api.github.com/*'],side_panel:{default_path:'sidepanel.html'},background:{service_worker:'background.js'}};
+test('accept minimal production manifest with unordered allowed hosts',()=>assert.equal(auditManifest(base),true));
+test('reject extra or malformed permission lists',()=>{for(const patch of [{permissions:['sidePanel','scripting','tabs']},{host_permissions:['<all_urls>']},{optional_host_permissions:['https://chatgpt.com/*']},{optional_permissions:['scripting']},{permissions:'sidePanel'},{permissions:['sidePanel','scripting','scripting']}])assert.throws(()=>auditManifest({...base,...patch}),/Manifest audit failed/);});
+test('reject other entrypoints and page exposure',()=>{for(const key of ['externally_connectable','web_accessible_resources','sandbox','devtools_page','chrome_url_overrides','update_url'])assert.throws(()=>auditManifest({...base,[key]:{}}),/Unexpected manifest key/);assert.throws(()=>auditManifest({...base,content_scripts:[{matches:['https://chatgpt.com/*'],js:['inject.js']}]}),/Content scripts/);});
+test('reject invalid manifest version and missing extension entrypoints',()=>{for(const patch of [{manifest_version:2},{side_panel:undefined},{background:undefined}])assert.throws(()=>auditManifest({...base,...patch}),/Manifest audit failed/);assert.throws(()=>auditManifest(null),/Invalid/);});

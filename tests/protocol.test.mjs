@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseMessage,parseMessageBatch,messageKey,checkReplay,assertSource,assertReport,dependencyCycle,assertAcceptance} from '../src/protocol.ts';
+const report={type:'AGENT_STATUS',messageId:'report-1',teamId:'team-1',agentId:1,executionId:'exec-1',status:'READY_FOR_REVIEW',completed:['code'],remaining:[],dependencies:[]};
+const order={type:'DISPATCH_ORDER',orderId:'order-1',teamId:'team-1',sourceAgentId:0,targetAgentId:1,action:'RESUME',prompt:'Continue',expectedResult:'Tests'};
+const parse=x=>parseMessage(JSON.stringify(x));
+const agent={id:'team-1:A1',teamId:'team-1',number:1,chatUrl:'https://chatgpt.com/c/abc',state:'STOPPED',lastOrderId:'exec-1'};
+const team={id:'team-1'};
+test('protocol validates reports and supervisor orders',()=>{assert.deepEqual(parse(report),report);assert.deepEqual(parse(order),order);});
+test('shared response arrays validate every item and reject duplicate developer decisions',()=>{
+ const secondOrder={...order,orderId:'order-2',targetAgentId:2};
+ assert.deepEqual(parseMessageBatch(JSON.stringify([report,secondOrder])),[report,secondOrder]);
+ assert.deepEqual(parseMessageBatch('[]'),[]);
+ assert.throws(()=>parseMessageBatch(JSON.stringify([order,{...secondOrder,targetAgentId:1}])),/one status or next action/);
+ assert.throws(()=>parseMessageBatch(JSON.stringify([report,{...report,messageId:'another-report'}])),/one status or next action/);
+ assert.throws(()=>parseMessageBatch(JSON.stringify([report])+' extra'));
+});
+test('reject malformed identities, roles, invalid status and incomplete review',()=>{for(const x of [{...report,agentId:0},{...report,status:'COMPLETED'},{...report,remaining:['unfinished']},{...report,dependencies:[{agentId:1,artifact:'self',status:'MISSING'}]},{...order,sourceAgentId:2},{...order,targetAgentId:0},{...order,teamId:'a/b'},{...order,prompt:''}])assert.throws(()=>parse(x));assert.throws(()=>parseMessage('not JSON'));});
+test('deduplication is scoped by team and rejects conflicting payloads',()=>{const m=parse(report),existing={id:messageKey(m),message:m};assert.equal(checkReplay(existing,m),true);assert.equal(checkReplay(undefined,m),false);assert.throws(()=>checkReplay(existing,parse({...report,completed:['different']})),/different content/);assert.notEqual(messageKey(m),messageKey(parse({...report,teamId:'team-2'})));});
+test('source binding rejects cross-team, wrong agent and unregistered chat',()=>{assert.doesNotThrow(()=>assertSource(report,team,agent));assert.throws(()=>assertSource(report,team,{...agent,number:2}));assert.throws(()=>assertSource(report,{id:'other'},agent));assert.throws(()=>assertSource(report,team,{...agent,chatUrl:undefined}));});
+test('stale, duplicate and running reports cannot mutate current execution',()=>{assert.doesNotThrow(()=>assertReport(report,agent));for(const a of [{...agent,lastOrderId:'exec-2'},{...agent,lastReportId:'r'},{...agent,state:'WORKING'}])assert.throws(()=>assertReport(report,a));});
+test('detect missing-dependency cycles but ignore available edges',()=>{const a={...report,agentId:1,dependencies:[{agentId:2,artifact:'api',status:'MISSING'}]},b={...report,agentId:2,dependencies:[{agentId:1,artifact:'ui',status:'MISSING'}]};assert.deepEqual(dependencyCycle([a,b]),[1,2,1]);assert.equal(dependencyCycle([a,{...b,dependencies:[{...b.dependencies[0],status:'AVAILABLE'}]}]),null);assert.equal(dependencyCycle([a]),null);});
+test('acceptance requires latest ready report and no queued work',()=>{const a={...agent,lastReportId:'report-1'};assert.doesNotThrow(()=>assertAcceptance(a,report,false));for(const [x,r,p] of [[a,report,true],[a,{...report,status:'BLOCKED'},false],[a,{...report,executionId:'old'},false],[{...a,state:'WORKING'},report,false],[{...a,lastReportId:undefined},report,false]])assert.throws(()=>assertAcceptance(x,r,p));});
+test('ACCEPT must identify the exact reviewed execution and report',()=>{const accept={...order,action:'ACCEPT',targetExecutionId:'exec-1',targetReportId:'report-1'};assert.deepEqual(parse(accept),accept);assert.throws(()=>parse({...accept,targetReportId:undefined}));assert.throws(()=>parse({...accept,targetExecutionId:undefined}));});

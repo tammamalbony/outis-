@@ -1,0 +1,37 @@
+{
+  "name": "agentsync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/core.test.mjs tests/protocol.test.mjs tests/github.test.mjs tests/github-writer.test.mjs tests/conversation-tabs.test.mjs tests/chat-monitor.test.mjs tests/agent-bridge.test.mjs tests/agent-bridge-registration.test.mjs tests/execution.test.mjs tests/team-lifecycle.test.mjs tests/timing-settings.test.mjs tests/github-completion.test.mjs tests/manifest-audit.test.mjs tests/project-preparation.test.mjs tests/injected-bridge-send.test.mjs tests/injected-bridge-poll.test.mjs tests/json-cleanup.test.mjs",
+    "test:parser": "vitest run tests/parser.test.ts",
+    "test:integration": "vitest run tests/database.integration.test.ts --environment node",
+    "verify": "node scripts/verify-local.mjs"
+  },
+  "dependencies": {
+    "dexie": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remark": "^15.0.0",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "wxt": "^0.20.0",
+    "@wxt-dev/module-react": "^1.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.0",
+    "fake-indexeddb": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

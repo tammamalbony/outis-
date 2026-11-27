@@ -1,0 +1,21 @@
+{
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "Local MCP Test",
+    "shortDescription": "Test a local Python MCP server",
+    "longDescription": "A local MCP server and live dashboard for two-way message, JSON data, and event exchange with a paired Chrome extension. Includes a clear-all control that resets local test data and pairing.",
+    "developerName": "Local MCP Test",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": "Use Local MCP Test to check the local server, send messages or data to the paired Chrome extension, and read its inbox with get_extension_messages when asked to check for incoming Chrome messages."
+  },
+  "name": "local-mcp-test",
+  "version": "0.4.3",
+  "description": "Test local MCP connectivity and exchange messages, data, and events with a paired Chrome extension.",
+  "author": {
+    "name": "Local MCP Test"
+  },
+  "keywords": [],
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json"
+}
