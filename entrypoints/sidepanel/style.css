@@ -9,7 +9,7 @@
 
 * { box-sizing: inherit; }
 body { margin: 0; min-width: 320px; background: #f3f6fb; }
-main { width: 100%; max-width: 760px; margin: auto; padding: 18px; }
+main { width: 100%; max-width: 100%; margin: 0; padding: 12px; }
 header {
   position: relative;
   overflow: hidden;
@@ -268,7 +268,7 @@ main[data-theme] .empty-chats span, main[data-theme] .monitor-footnote { color: 
   .status-card { grid-column: auto; }
 }
 
-.app-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; margin: 0 0 14px; padding: 5px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb,var(--surface) 94%,transparent); backdrop-filter: blur(12px); }
+.app-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 5px; margin: 0 0 14px; padding: 5px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb,var(--surface) 94%,transparent); backdrop-filter: blur(12px); }
 main[data-theme] .app-tabs button { min-height: 40px; border-color: transparent; border-radius: 9px; background: transparent; color: var(--muted); }
 main[data-theme] .app-tabs button[aria-selected="true"] { border-color: color-mix(in srgb,var(--orange) 38%,var(--line)); background: color-mix(in srgb,var(--orange) 14%,var(--surface-raised)); color: var(--orange); }
 .tab-heading, .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 2px 12px; }
@@ -301,3 +301,16 @@ main[data-theme] .danger-button:hover:not(:disabled) { border-color: var(--dange
   .history-filter select { width: 100%; max-width: none; margin: 0; }
   .error-log-entry summary { flex-direction: column; gap: 2px; }
 }
+
+
+/* Compact icon tabs with hover and keyboard tooltips for narrow side panels. */
+.app-tabs { gap: 3px; padding: 4px; margin-bottom: 8px; }
+main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height: 36px; padding: 5px; font-size: 19px; line-height: 1; }
+.app-tabs button::after { position: absolute; top: calc(100% + 7px); left: 50%; z-index: 20; transform: translate(-50%,-3px); padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); color: var(--text); content: attr(data-tooltip); font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
+.app-tabs button:hover::after, .app-tabs button:focus-visible::after { transform: translate(-50%,0); opacity: 1; }
+.wizard-actions { position: sticky; top: 48px; z-index: 4; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 5px; margin: 0 0 10px; padding: 6px; border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb,var(--surface) 96%,transparent); backdrop-filter: blur(12px); }
+.wizard-actions a { display: grid; min-width: 0; place-items: center; padding: 6px 3px; border-radius: 7px; color: var(--muted); font-size: 10px; font-weight: 700; text-align: center; text-decoration: none; }
+.wizard-actions a:hover, .wizard-actions a:focus-visible { outline: 2px solid color-mix(in srgb,var(--orange) 40%,transparent); background: color-mix(in srgb,var(--orange) 10%,var(--surface-raised)); color: var(--orange); }
+.wizard-actions span { display: block; margin-bottom: 2px; font-size: 15px; }
+.timings-future-note, .timing-future-note { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); font-size: 11px; }
+@media (max-width: 380px) { main { padding: 8px; } .wizard-actions a { font-size: 9px; } }
