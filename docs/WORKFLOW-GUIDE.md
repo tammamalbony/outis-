@@ -46,7 +46,8 @@ The side panel is narrow, so navigation uses icon-only tabs with hover/focus too
 |---|---|---|
 | Workspace | grid/briefcase | Import tasks, manage batches, and run the guided workflow |
 | History | clock/stack | Review saved chats, reports, executions, and events |
-| Permissions | access/diamond | Review and request optional ChatGPT, GitHub API, clipboard, and active-tab access |\n| Settings | gear | Configure repository prompts, view local error logs, and manage local data |
+| Permissions | access/diamond | Review and request optional ChatGPT, GitHub API, clipboard, and active-tab access |
+| Settings | gear | Configure repository prompts, view local error logs, and manage local data |
 | Timing Settings | clock sliders | Configure task timing and scheduling behavior |
 
 Icons need descriptive tooltip text on hover and keyboard focus. Do not rely on color alone to indicate the active tab.
