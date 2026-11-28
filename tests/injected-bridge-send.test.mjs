@@ -33,17 +33,30 @@ test('clears a stale draft, waits for the empty composer voice control, then sen
       assert.ok(composer._value, 'send arrow is available only for a non-empty composer');
       messages.push({ hasAttribute: name => name === 'data-user-message-bubble', getAttribute: name => name === 'data-message-author-role' ? null : null, innerText: composer._value, textContent: composer._value });
       location.pathname = '/c/agentsync-smoke';
+      composer._value = '';
     },
   };
   const voiceButton = { get offsetWidth() { return composer._value ? 0 : 1; }, getAttribute(name) { return name === 'aria-label' ? 'Start Voice' : name === 'data-composer-voice-start' ? 'true' : null; } };
   const profileButton = { offsetWidth: 1, getAttribute(name) { return name === 'data-testid' ? 'profile-button' : null; } };
+  const chatModeButton = { offsetWidth: 1, innerText: 'Chat', textContent: 'Chat', getAttribute(name) { return name === 'aria-pressed' ? 'true' : null; } };
+  const workModeButton = { offsetWidth: 1, innerText: 'Work', textContent: 'Work', getAttribute(name) { return name === 'aria-pressed' ? 'false' : null; } };
+  const modeGroup = { offsetWidth: 1, querySelectorAll(selector) { return selector === 'button' ? [chatModeButton, workModeButton] : []; } };
+  const effortMenuButton = { offsetWidth: 1, getAttribute(name) { return name === 'aria-label' ? 'Select ChatGPT model' : null; }, click() {} };
+  const effortSlider = { offsetWidth: 1, getAttribute(name) { return name === 'aria-valuenow' ? '2' : null; } };
+  const effortRow = { offsetWidth: 1, focus() {}, dispatchEvent() {} };
+  const effortMenu = { offsetWidth: 1 };
   const document = {
+    addEventListener() {},
     readyState: 'complete',
     documentElement: {},
     querySelector(selector) { return selector.includes('prompt-textarea') || selector.startsWith('textarea') || selector.includes('contenteditable') ? composer : null; },
     querySelectorAll(selector) {
       if (selector.includes('data-message-author-role') || selector.includes('data-user-message-bubble') || selector.includes('data-dil-response')) return messages;
-      if (selector === 'button') return [sendButton, voiceButton, profileButton];
+      if (selector === 'button') return [sendButton, voiceButton, profileButton, chatModeButton, workModeButton, effortMenuButton];
+      if (selector === '[role="group"][aria-label="Composer mode"]') return [modeGroup];
+      if (selector === '[role="slider"][aria-valuenow]') return [effortSlider];
+      if (selector === '[role="menuitem"][aria-label="Power"]') return [effortRow];
+      if (selector === '[role="menu"]') return [effortMenu];
       if (selector.includes('profile') || selector.includes('account')) return [profileButton];
       return [];
     },
@@ -92,7 +105,7 @@ test('clears a stale draft, waits for the empty composer voice control, then sen
 
   let timeout;
   await new Promise((resolve, reject) => {
-    const handled = listeners[0]({ type: 'AGENTSYNC_CREATE_CHAT', text: 'Set up the A1 chat.', dedupeKey: 'setup-smoke' }, {}, value => { response = value; clearTimeout(timeout); resolve(); });
+    const handled = listeners[0]({ type: 'AGENTSYNC_CREATE_CHAT', text: 'Set up the A1 chat.', dedupeKey: 'setup-smoke', timings: { sessionReadyTimeoutMs: 1000, sessionStableMs: 0, composerTextTimeoutMs: 1000, submissionTimeoutMs: 1000, conversationLinkGraceMs: 10_000, conversationLinkStableMs: 0, conversationLinkTimeoutMs: 12_000, pollIntervalMs: 1 } }, {}, value => { response = value; clearTimeout(timeout); resolve(); });
     assert.equal(handled, true);
     timeout = setTimeout(() => reject(new Error('Chat setup did not return a result.')), 20_000);
   });
@@ -112,6 +125,7 @@ test('reads current ChatGPT user and assistant message containers', async () => 
   const user = { hasAttribute: name => name === 'data-user-message-bubble', getAttribute: () => null, innerText: 'AgentSync setup prompt' };
   const assistant = { hasAttribute: name => name === 'data-dil-response', getAttribute: name => name === 'data-dil-message-id' ? 'response-123' : null, innerText: 'READY — waiting for the scoped AgentSync assignment.' };
   const document = {
+    addEventListener() {},
     documentElement: {},
     querySelector() { return null; },
     querySelectorAll(selector) {
@@ -161,6 +175,7 @@ test('recognizes the visible Start Voice button without ChatGPT private markers'
   const assistant = { hasAttribute:name=>name==='data-dil-response', getAttribute:name=>name==='data-dil-message-id'?'setup-reply-1':null, innerText:'READY — waiting for the scoped AgentSync assignment.' };
   const voice = { get offsetWidth(){return 1;}, getAttribute:name=>name==='aria-label'?'Start Voice':null };
   const document = {
+    addEventListener() {},
     readyState:'complete', documentElement:{},
     querySelector(selector){return selector.includes('prompt-textarea')||selector.startsWith('textarea')||selector.includes('contenteditable')?composer:null;},
     querySelectorAll(selector){
@@ -205,6 +220,7 @@ test('recognizes the current ChatGPT voice SVG even when its button label differ
     closest:selector=>selector==='button'?voiceButton:null,
   };
   const document = {
+    addEventListener() {},
     readyState:'complete', documentElement:{},
     querySelector(selector){return selector.includes('prompt-textarea')||selector.startsWith('textarea')||selector.includes('contenteditable')?composer:null;},
     querySelectorAll(selector){
@@ -273,6 +289,7 @@ test('confirms a send from the stop-square SVG before the user bubble or compose
   messages.push(userMessage,assistantMessage);
   buttons=[sendButton,voiceButton];
   const document = {
+    addEventListener() {},
     readyState:'complete', documentElement:{},
     querySelector(selector){return selector.includes('prompt-textarea')||selector.startsWith('textarea')||selector.includes('contenteditable')?composer:null;},
     querySelectorAll(selector){
@@ -307,7 +324,7 @@ test('confirms a send from the stop-square SVG before the user bubble or compose
 test('bridge ping forces a fresh snapshot and acknowledges background receipt', async () => {
   const source = await readFile(new URL('../public/agentsync-bridge.js', import.meta.url), 'utf8');
   const listeners=[],sent=[];
-  const document={readyState:'complete',documentElement:{},querySelector(){return null;},querySelectorAll(){return [];}};
+  const document={readyState:'complete',documentElement:{},addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];}};
   const context={
     document,location:{origin:'https://chatgpt.com',pathname:'/c/bridge-ping-test',search:'',hash:''},
     chrome:{runtime:{id:'test-extension',onMessage:{addListener(listener){listeners.push(listener);},removeListener(){}},sendMessage(message,callback){sent.push(message);callback?.({received:true});}}},

@@ -8,7 +8,7 @@ test('sends a forced status snapshot every five seconds and clears the timer whe
   const sent=[],listeners=[],intervals=new Map(),cleared=[];
   let nextInterval=0;
   const context={
-    document:{documentElement:{},querySelector(){return null;},querySelectorAll(){return []; }},
+    document:{documentElement:{},addEventListener(){},querySelector(){return null;},querySelectorAll(){return []; }},
     location:{origin:'https://chatgpt.com',pathname:'/c/poll-test',search:'',hash:''},
     chrome:{runtime:{id:'test-extension',onMessage:{addListener(listener){listeners.push(listener);},removeListener(listener){const i=listeners.indexOf(listener);if(i>=0)listeners.splice(i,1);}},sendMessage(message){sent.push(message);}}},
     MutationObserver:class{observe(){}disconnect(){}},

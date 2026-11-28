@@ -6,6 +6,7 @@ export const CHAT_STATUS_POLL_MS = 5_000;
 export const CHAT_OBSERVATION_MAX_AGE_MS = CHAT_STATUS_POLL_MS * 3;
 export type ChatPresence = 'ACTIVE' | 'OPEN' | 'CLOSED' | 'UNKNOWN';
 export type ChatGPTStatus = 'GENERATING' | 'IDLE' | 'UNKNOWN';
+export type ChatFlow = 'NEW'|'IDLE'|'PROMPT_READY'|'SUBMITTED'|'GENERATING'|'UNKNOWN';
 
 export type ChatMonitorEntry = {
   agent: Agent;
@@ -14,6 +15,8 @@ export type ChatMonitorEntry = {
   phase?: ExecutionPhase;
   presence: ChatPresence;
   chatStatus: ChatGPTStatus;
+  chatFlow:ChatFlow;
+  observation?:AgentBridgeObservation;
   chatObservedAt?: string;
 };
 
@@ -54,6 +57,8 @@ export function buildChatMonitorEntries(
         phase: order ? executionPhase(order, agent) : undefined,
         presence: chatPresence(agent.chatUrl, tabs),
         chatStatus: fresh && observation ? observation.state : 'UNKNOWN',
+        chatFlow:fresh&&observation?.flow?observation.flow:'UNKNOWN',
+        observation:fresh?observation:undefined,
         chatObservedAt: fresh ? observation?.observedAt : undefined,
       };
     })

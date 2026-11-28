@@ -6,6 +6,18 @@ export type ChatRunState = 'GENERATING' | 'IDLE' | 'UNKNOWN';
 export type ChatSnapshot = {
   conversationUrl: string;
   state: ChatRunState;
+  flow?:'NEW'|'IDLE'|'PROMPT_READY'|'SUBMITTED'|'GENERATING'|'UNKNOWN';
+  flowTrail?:('NEW'|'IDLE'|'PROMPT_READY'|'SUBMITTED'|'GENERATING'|'UNKNOWN')[];
+  composerState?:'EMPTY'|'TEXT'|'MISSING';
+  buttonState?:'VOICE'|'ARROW'|'STOP'|'NONE';
+  voiceVisible?:boolean;
+  voiceEnabled?:boolean;
+  arrowVisible?:boolean;
+  arrowEnabled?:boolean;
+  stopVisible?:boolean;
+  stopEnabled?:boolean;
+  composerMode?:'CHAT'|'WORK'|'UNKNOWN';
+  effort?:'LOW'|'MEDIUM'|'HIGH'|'UNKNOWN';
   latestRole: 'assistant' | 'user' | 'unknown';
   latestMessageId: string;
   latestMessage: string;
