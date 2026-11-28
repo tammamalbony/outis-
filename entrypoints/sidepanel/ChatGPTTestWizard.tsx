@@ -60,7 +60,7 @@ const statusIconPaths:Record<string,string>={
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'}))),[testClock,setTestClock]=useState(()=>Date.now());
-  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('test'),[savedTestChatLink,setSavedTestChatLink]=useState<SavedTestChatLink>();
+  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[detectorActiveIndex,setDetectorActiveIndex]=useState<number>(),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('test'),[savedTestChatLink,setSavedTestChatLink]=useState<SavedTestChatLink>();
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -99,7 +99,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     return()=>browser.tabs.onActivated.removeListener(handleTabActivated);
   },[tabId]);
   async function watchTab(id:number){
-    clearComposerOnNewChat.current=false;setBusy(true);setError('');setDetectorResults([]);setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
+    clearComposerOnNewChat.current=false;setBusy(true);setError('');setDetectorResults([]);setDetectorActiveIndex(undefined);setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
     latestProbe.current=undefined;
     try{
       const tab=await browser.tabs.get(id);
@@ -122,41 +122,54 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       await watchTab(tab.id);
     }catch(e){const message=e instanceof Error?e.message:String(e);setError(message);setTabSelectionStatus(`URL rejected · ${message}`);}
   }
-  async function runNextDetectorCheck(){
-    if(tabId===undefined){setError('Choose a ChatGPT tab with “Use active tab” before running detector checks.');return;}
-    const last=detectorResults.at(-1),retry=last?.status==='error'&&detectorResults.length>0,index=retry?detectorResults.length-1:detectorResults.length;
-    if(index>=detectorSteps.length)return;
-    setDetectorBusy(true);setError('');
-    const attempts=(retry?last?.attempts??1:0)+1;
-    let result:DetectorResult;
+  async function performDetectorCheck(index:number,attempts:number):Promise<DetectorResult>{
     try{
-      const tab=await browser.tabs.get(tabId);
-      if(index===0){const validated=validateChatGPTTabUrl(tab.pendingUrl||tab.url);result={name:detectorSteps[index],status:'observed',detail:`Accepted ${validated.kind} URL: ${validated.url}`,at:new Date().toLocaleTimeString(),attempts};}
-      else if(index===1){const value=tab.status==='complete'?await chatAdapter.readStatusSnapshot(tabId):undefined;if(value)setProbe(value);result={name:detectorSteps[index],status:'observed',detail:`Chrome tab: ${tab.status??'unknown'} · ChatGPT document ready: ${value?value.pageLoaded?'yes':'no':'not checked while tab is loading'}`,at:new Date().toLocaleTimeString(),attempts};}
+      if(tabId===undefined)throw new Error('Choose a ChatGPT tab with “Use active tab” before running detector checks.');
+      const tab=await browser.tabs.get(tabId);let detail='';
+      if(index===0){const validated=validateChatGPTTabUrl(tab.pendingUrl||tab.url);detail=`Accepted ${validated.kind} URL: ${validated.url}`;}
+      else if(index===1){const value=tab.status==='complete'?await chatAdapter.readStatusSnapshot(tabId):undefined;if(value)setProbe(value);detail=`Chrome tab: ${tab.status??'unknown'} · ChatGPT document ready: ${value?value.pageLoaded?'yes':'no':'not checked while tab is loading'}`;}
       else{
-        const value=await chatAdapter.readStatusSnapshot(tabId);
-        const yesNo=(value:boolean)=>value?'yes':'no';
-        let detail='';
+        const value=await chatAdapter.readStatusSnapshot(tabId);const yesNo=(detected:boolean)=>detected?'yes':'no';
         switch(index){
-          case 2: detail=`Composer visible: ${yesNo(value.composerVisible)}`;break;
-          case 3: detail=!value.composerVisible?'Composer text unavailable because the composer is not visible.':value.composerEmpty?'Composer text: (empty)':`Composer text detected (${value.composerLength} characters): ${value.composerText.slice(0,180)}${value.composerText.length>180?'…':''}${value.composerTextTruncated?' [snapshot text clipped]':''}`;break;
-          case 4: detail=`Composer empty: ${yesNo(value.composerEmpty)} · detected length: ${value.composerLength}`;break;
-          case 5: detail=`Voice button visible: ${yesNo(value.voiceVisible)} · enabled: ${yesNo(value.voiceEnabled)}`;break;
-          case 6: detail=`Send arrow visible: ${yesNo(value.arrowVisible)} · enabled: ${yesNo(value.arrowEnabled)}`;break;
-          case 7: detail=`Stop button visible: ${yesNo(value.stopVisible)} · enabled: ${yesNo(value.stopEnabled)}`;break;
-          case 8: detail=`Detected mode: ${value.composerMode}`;break;
-          case 9: detail=`Detected effort: ${value.effort}`;break;
+          case 2:detail=`Composer visible: ${yesNo(value.composerVisible)}`;break;
+          case 3:detail=!value.composerVisible?'Composer text unavailable because the composer is not visible.':value.composerEmpty?'Composer text: (empty)':`Composer text detected (${value.composerLength} characters): ${value.composerText.slice(0,180)}${value.composerText.length>180?'…':''}${value.composerTextTruncated?' [snapshot text clipped]':''}`;break;
+          case 4:detail=`Composer empty: ${yesNo(value.composerEmpty)} · detected length: ${value.composerLength}`;break;
+          case 5:detail=`Voice button visible: ${yesNo(value.voiceVisible)} · enabled: ${yesNo(value.voiceEnabled)}`;break;
+          case 6:detail=`Send arrow visible: ${yesNo(value.arrowVisible)} · enabled: ${yesNo(value.arrowEnabled)}`;break;
+          case 7:detail=`Stop button visible: ${yesNo(value.stopVisible)} · enabled: ${yesNo(value.stopEnabled)}`;break;
+          case 8:detail=`Detected mode: ${value.composerMode}`;break;
+          case 9:detail=`Detected effort: ${value.effort}`;break;
           default:{const action=value.arrowVisible?'Send arrow':value.stopVisible?'Stop button':value.voiceVisible?'Voice button':'None';const enabled=value.arrowVisible?value.arrowEnabled:value.stopVisible?value.stopEnabled:value.voiceVisible?value.voiceEnabled:false;detail=`Primary action: ${action} · enabled: ${yesNo(enabled)}`;break;}
         }
-        result={name:detectorSteps[index],status:'observed',detail,at:new Date().toLocaleTimeString(),attempts};
         setProbe(value);
       }
-    }catch(error){result={name:detectorSteps[index],status:'error',detail:error instanceof Error?error.message:String(error),at:new Date().toLocaleTimeString(),attempts};}
-    setDetectorResults(previous=>retry?previous.map((item,i)=>i===index?result:item):[...previous,result]);
-    setDetectorBusy(false);
+      return {name:detectorSteps[index],status:'observed',detail,at:new Date().toLocaleTimeString(),attempts};
+    }catch(error){return {name:detectorSteps[index],status:'error',detail:error instanceof Error?error.message:String(error),at:new Date().toLocaleTimeString(),attempts};}
+  }
+  function nextDetectorIndex(results:DetectorResult[]){const last=results.at(-1);return last?.status==='error'?results.length-1:results.length;}
+  async function runNextDetectorCheck(){
+    const index=nextDetectorIndex(detectorResults);if(index>=detectorSteps.length||detectorBusy)return;
+    setDetectorBusy(true);setError('');setDetectorActiveIndex(index);
+    const prior=detectorResults[index],result=await performDetectorCheck(index,(prior?.attempts??0)+1);
+    setDetectorResults(previous=>prior?previous.map((item,i)=>i===index?result:item):[...previous,result]);
+    setDetectorActiveIndex(undefined);setDetectorBusy(false);
+  }
+  async function runAllDetectorChecks(){
+    if(tabId===undefined){setError('Choose a ChatGPT tab with “Use active tab” before running detector checks.');return;}
+    if(detectorBusy)return;
+    setDetectorBusy(true);setError('');
+    let results=[...detectorResults];
+    try{
+      for(let index=nextDetectorIndex(results);index<detectorSteps.length;index=nextDetectorIndex(results)){
+        setDetectorActiveIndex(index);
+        const prior=results[index],result=await performDetectorCheck(index,(prior?.attempts??0)+1);
+        results=prior?results.map((item,i)=>i===index?result:item):[...results,result];setDetectorResults(results);
+        if(result.status==='error')break;
+      }
+    }finally{setDetectorActiveIndex(undefined);setDetectorBusy(false);}
   }
   async function openNew(){
-    setBusy(true);setError('');setDetectorResults([]);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;latestProbe.current=undefined;clearComposerOnNewChat.current=false;
+    setBusy(true);setError('');setDetectorResults([]);setDetectorActiveIndex(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;latestProbe.current=undefined;clearComposerOnNewChat.current=false;
     try{
       if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted.');
       const tab=await chatAdapter.openNew();
@@ -626,9 +639,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       <button type="button" role="tab" id="chat-subtab-test" aria-selected={chatSubtab==='test'} aria-controls="chat-panel-test" onClick={()=>setChatSubtab('test')}>Detailed test <span>{testRunPhase==='IDLE'?'':testRunPhase==='PASSED'?'✓':`${Math.min(testCheckpoint.current+1,testRunSteps.length)}/${testRunSteps.length}`}</span></button>
     </nav>
     {chatSubtab==='detector'&&<section id="chat-panel-detector" className="panel chat-test-detection" role="tabpanel" aria-labelledby="chat-subtab-detector" aria-live="polite">
-      <div className="chat-test-progress-heading"><div><p className="eyebrow">READ-ONLY CHECKS</p><h3>Control detector walkthrough</h3><p>Each click runs one check on the watched tab. It only reads the page; it does not type, switch settings, or submit.</p></div><div className="chat-test-primary-actions"><button type="button" disabled={detectorBusy||busy||tabId===undefined||detectorResults.length>=detectorSteps.length} onClick={()=>void runNextDetectorCheck()}>{detectorBusy?'Checking…':detectorResults.at(-1)?.status==='error'?`Retry check ${detectorResults.length}`:detectorResults.length===0?'Run check 1':detectorResults.length>=detectorSteps.length?'Checks complete':`Run check ${detectorResults.length+1}`}</button>{detectorResults.length>0&&<button type="button" className="secondary-button" disabled={detectorBusy} onClick={()=>setDetectorResults([])}>Reset checks</button>}</div></div>
+      <div className="chat-test-progress-heading"><div><p className="eyebrow">READ-ONLY CHECKS</p><h3>Control detector walkthrough</h3><p>Run one check at a time, or auto-run the remaining checks in order. These checks only read the watched tab; they do not type, switch settings, or submit.</p></div><div className="chat-test-primary-actions"><button type="button" disabled={detectorBusy||busy||tabId===undefined||detectorResults.length>=detectorSteps.length} onClick={()=>void runNextDetectorCheck()}>{detectorBusy?'Checking…':detectorResults.at(-1)?.status==='error'?`Retry check ${detectorResults.length}`:detectorResults.length===0?'Run check 1':detectorResults.length>=detectorSteps.length?'Checks complete':`Run check ${detectorResults.length+1}`}</button><button type="button" className="secondary-button" disabled={detectorBusy||busy||tabId===undefined||detectorResults.length>=detectorSteps.length} onClick={()=>void runAllDetectorChecks()}>{detectorBusy?'Auto-running…':'Auto-run checks'}</button>{detectorResults.length>0&&<button type="button" className="secondary-button" disabled={detectorBusy} onClick={()=>{setDetectorResults([]);setDetectorActiveIndex(undefined);}}>Reset checks</button>}</div></div>
       {!tabId&&<p className="chat-test-run-message">Select a valid ChatGPT tab with “Use active tab” first.</p>}
-      <ol className="chat-test-sequence">{detectorSteps.map((step,index)=>{const result=detectorResults[index];const retrying=detectorBusy&&detectorResults.length===index+1&&detectorResults.at(-1)?.status==='error';return <li key={step} data-reached={result?.status==='observed'} data-failed={result?.status==='error'} data-active={retrying}><span>{result?.status==='observed'?'✓':result?.status==='error'?'!':index+1}</span><div><strong>{step}</strong><small>{result?`${result.attempts>1?`Attempt ${result.attempts} · `:''}${result.at} · ${result.detail}`:'Not checked yet'}</small></div></li>;})}</ol>
+      <ol className="chat-test-sequence">{detectorSteps.map((step,index)=>{const result=detectorResults[index];return <li key={step} data-reached={result?.status==='observed'} data-failed={result?.status==='error'} data-active={detectorActiveIndex===index}><span>{result?.status==='observed'?'✓':result?.status==='error'?'!':index+1}</span><div><strong>{step}</strong><small>{result?`${result.attempts>1?`Attempt ${result.attempts} · `:''}${result.at} · ${result.detail}`:detectorActiveIndex===index?'Checking…':'Not checked yet'}</small></div></li>;})}</ol>
     </section>}
     {chatSubtab==='test'&&<section id="chat-panel-test" className="panel chat-test-progress" role="tabpanel" aria-labelledby="chat-subtab-test" aria-live="polite">
       <div className="chat-test-progress-heading"><div><p className="eyebrow">DETAILED END-TO-END TEST</p><h3>Step-by-step automated test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step and validates its result.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'} · Total elapsed: {formatTestTime(runElapsedMs)}</p></div>
