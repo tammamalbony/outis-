@@ -344,3 +344,31 @@ test('bridge ping forces a fresh snapshot and acknowledges background receipt', 
   assert.deepEqual(JSON.parse(JSON.stringify(response)),{ready:true});
   assert.equal(sent.length,2,'ping bypasses snapshot deduplication so registration receives current page state');
 });
+
+test('manual submit clicks only the visible enabled send arrow and leaves composer text untouched', async () => {
+  const source=await readFile(new URL('../public/agentsync-bridge.js',import.meta.url),'utf8');
+  const listeners=[],arrowPath='M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z';
+  let clickCount=0;
+  class TestTextArea{constructor(){this.value='Keep this exact draft';this.disabled=false;}getAttribute(){return null;}getClientRects(){return [{}];}closest(){return null;}}
+  const composer=new TestTextArea();
+  const path={getAttribute:name=>name==='d'?arrowPath:null};
+  const arrow={disabled:false,get offsetWidth(){return 1;},getAttribute(){return null;},getClientRects(){return [{}];},querySelectorAll:selector=>selector==='svg path'?[path]:[],click(){clickCount++;}};
+  let buttons=[arrow];
+  const document={readyState:'complete',documentElement:{},body:{innerText:''},addEventListener(){},querySelector:selector=>selector.includes('prompt-textarea')||selector.startsWith('textarea')?composer:null,querySelectorAll:selector=>selector==='button'?buttons:[]};
+  const context={document,location:{origin:'https://chatgpt.com',pathname:'/',search:'',hash:''},chrome:{runtime:{id:'test-extension',onMessage:{addListener(listener){listeners.push(listener);},removeListener(){},},sendMessage(){}}},HTMLTextAreaElement:TestTextArea,HTMLInputElement:class{},Element:class{},MutationObserver:class{observe(){}disconnect(){}},setTimeout,clearTimeout,Date,Map,Set,Promise,Error,JSON,RegExp,String,Boolean,globalThis:null};
+  context.globalThis=context;vm.runInNewContext(source,context);
+  const clickResult=await new Promise(resolve=>listeners[0]({type:'AGENTSYNC_TEST_CLICK_SEND_ARROW'},{},resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(clickResult)),{clicked:true});
+  assert.equal(clickCount,1);
+  assert.equal(composer.value,'Keep this exact draft','the bridge must not clear or replace composer content');
+  arrow.disabled=true;
+  const disabledResult=await new Promise(resolve=>listeners[0]({type:'AGENTSYNC_TEST_CLICK_SEND_ARROW'},{},resolve));
+  assert.equal(disabledResult.clicked,false);
+  assert.equal(clickCount,1,'a disabled arrow is never clicked');
+  assert.equal(composer.value,'Keep this exact draft');
+  arrow.disabled=false;buttons=[];
+  const hiddenResult=await new Promise(resolve=>listeners[0]({type:'AGENTSYNC_TEST_CLICK_SEND_ARROW'},{},resolve));
+  assert.equal(hiddenResult.clicked,false);
+  assert.equal(clickCount,1,'an absent arrow is never clicked');
+  assert.equal(composer.value,'Keep this exact draft');
+});

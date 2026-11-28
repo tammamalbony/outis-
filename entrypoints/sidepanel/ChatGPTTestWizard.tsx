@@ -319,24 +319,17 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       if(snapshot)setProbe(snapshot);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
-  async function sendDemoText(){
+  async function submitCurrentPrompt(){
     if(tabId===undefined)return;
     setControlBusy(true);setError('');setComposerTestStatus('');
     try{
-      const key=manualDemoKey.current;
       const snapshot=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
-      if(!key||!snapshot?.composerText.includes(`AgentSync delivery ID: ${key}`))throw new Error('No staged AgentSync demo prompt was found. Click Post demo text first; unrelated composer text will not be submitted.');
+      if(!snapshot?.composerVisible||snapshot.composerEmpty)throw new Error('The composer is empty. Nothing was submitted.');
       if(!snapshot.arrowVisible||!snapshot.arrowEnabled)throw new Error('The send arrow is not visible and enabled yet. Nothing was sent. Wait until ChatGPT shows the arrow, then try again.');
-      const text=snapshot.composerText;
-      const result=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SEND_DEMO',dedupeKey:key,text}) as {submitted?:boolean;duplicate?:boolean;uncertain?:boolean;error?:string}|undefined;
-      if(result?.uncertain){
-        const recovered=await chatAdapter.reconcileSubmission(tabId,snapshot.hasConversationUrl?snapshot.conversationUrl:'https://chatgpt.com/',key,text,!snapshot.hasConversationUrl);
-        if(!recovered.confirmed)throw new Error(`${result.error??'Send status is uncertain.'} After one reload: ${recovered.reason} The demo prompt was not resent.`);
-        setComposerTestStatus('Delivery confirmed after reload by matching the exact latest user message and delivery ID.');
-      }else if(result?.error||result?.submitted!==true)throw new Error(result?.error||'ChatGPT did not confirm the demo prompt submission.');
-      else setComposerTestStatus(result.duplicate?'This delivery ID was already submitted; no duplicate prompt was sent.':'Test prompt sent and confirmed.');
+      const result=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_CLICK_SEND_ARROW'}) as {clicked?:boolean;error?:string}|undefined;
+      if(result?.error||result?.clicked!==true)throw new Error(result?.error||'ChatGPT did not confirm the send-arrow click.');
       const updated=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
-      if(updated)setProbe(updated);
+      if(updated){setProbe(updated);setComposerTestStatus(updated.composerEmpty?'Clicked the send arrow. ChatGPT cleared the composer.':'Clicked the send arrow. The composer still has text; check ChatGPT before trying again.');}
     }catch(e){setComposerTestStatus(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
   async function copyTestReport(){
@@ -452,7 +445,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         <small className="chat-test-url">{probe.href}</small>
         {probe.hasConversationUrl&&<a className="chat-test-open-link" href={probe.conversationUrl} target="_blank" rel="noreferrer">Open this conversation</a>}
       </section>
-      <section className="panel chat-test-composer-quick"><div><h3>Composer test</h3><p>Post a labeled demo prompt, then send it or clear it.</p></div><pre className="chat-test-composer-preview">{probe.composerText?`${probe.composerText.slice(0,220)}${probe.composerText.length>220?'…':''}`:'Composer is empty.'}</pre><div className="chat-test-composer-buttons"><button type="button" disabled={controlBusy||!probe.composerVisible||!probe.composerEmpty} onClick={()=>void changeComposerText(false)}>Post demo text</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty} onClick={()=>void changeComposerText(true)}>Clear composer</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty||!probe.arrowVisible||!probe.arrowEnabled||!manualDemoKey.current||!probe.composerText.includes(`AgentSync delivery ID: ${manualDemoKey.current}`)} onClick={()=>void sendDemoText()}>Send current prompt</button></div><small className="chat-test-control-note">Send works only for the labeled demo prompt posted here, and only while ChatGPT shows an enabled send arrow.</small>{composerTestStatus&&<p className={composerTestStatus.includes('confirmed')||composerTestStatus.includes('sent')?'notice':'error'} role="status">{composerTestStatus}</p>}</section>
+      <section className="panel chat-test-composer-quick"><div><h3>Composer test</h3><p>Post a labeled demo prompt, submit the current composer text with ChatGPT’s arrow, or clear it.</p></div><pre className="chat-test-composer-preview">{probe.composerText?`${probe.composerText.slice(0,220)}${probe.composerText.length>220?'…':''}`:'Composer is empty.'}</pre><div className="chat-test-composer-buttons"><button type="button" disabled={controlBusy||!probe.composerVisible||!probe.composerEmpty} onClick={()=>void changeComposerText(false)}>Post demo text</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty} onClick={()=>void changeComposerText(true)}>Clear composer</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty||!probe.arrowVisible||!probe.arrowEnabled} onClick={()=>void submitCurrentPrompt()}>Submit prompt</button></div><small className="chat-test-control-note">Submit clicks only the visible, enabled ChatGPT send arrow. It does not replace the composer text or change chat settings.</small>{composerTestStatus&&<p className={composerTestStatus.includes('composer is now empty')?'notice':'error'} role="status">{composerTestStatus}</p>}</section>
       <details className="panel chat-test-details">
         <summary>Controls and diagnostics</summary>
         <p className="chat-test-details-intro">Optional tools for checking ChatGPT controls and inspecting the detected text.</p>

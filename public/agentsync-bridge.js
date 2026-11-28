@@ -567,6 +567,15 @@
       sendResponse(readTestSnapshot());
       return false;
     }
+    if(message?.type==='AGENTSYNC_TEST_CLICK_SEND_ARROW'){
+      const input=composer();
+      if(!input||!normalizeText(composerText(input))){sendResponse({clicked:false,error:'The composer is empty. Nothing was submitted.'});return false;}
+      const arrow=visibleButtons().find(button=>arrowIcon(button)&&enabledButton(button));
+      if(!arrow){sendResponse({clicked:false,error:'ChatGPT’s enabled send arrow is not visible. Nothing was submitted.'});return false;}
+      arrow.click();
+      sendResponse({clicked:true});
+      return false;
+    }
     if(message?.type==='AGENTSYNC_VERIFY_LAST_USER_MESSAGE'){
       const key=message.dedupeKey,text=message.text;
       if(location.origin!=='https://chatgpt.com'){sendResponse({confirmed:false,error:'Delivery verification is only available on chatgpt.com.'});return false;}
