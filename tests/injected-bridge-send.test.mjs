@@ -249,7 +249,7 @@ test('recognizes the current ChatGPT voice SVG even when its button label differ
   assert.equal(sent.at(-1).snapshot.state,'IDLE','the current ChatGPT voice SVG confirms the finished composer even when its label is not Start Voice');
 });
 
-test('confirms a send from the stop-square SVG before the user bubble or composer update', async () => {
+test('confirms a send only after the exact last user message appears and the composer clears', async () => {
   const source = await readFile(new URL('../public/agentsync-bridge.js', import.meta.url), 'utf8');
   const listeners = [];
   const snapshots = [];
@@ -283,6 +283,8 @@ test('confirms a send from the stop-square SVG before the user bubble or compose
     getAttribute:name=>name==='aria-label'?'Send':null,
     click(){
       assert.ok(composer.value.includes('AgentSync delivery ID: stop-square-order'));
+      messages.push({hasAttribute:name=>name==='data-user-message-bubble',getAttribute:()=>null,innerText:composer.value});
+      composer.value='';
       buttons=[sendButton,voiceButton,stopButton];
     },
   };
@@ -317,7 +319,7 @@ test('confirms a send from the stop-square SVG before the user bubble or compose
     },{},value=>{result=value;clearTimeout(timeout);resolve();});
   });
   assert.deepEqual(JSON.parse(JSON.stringify(result)),{submitted:true});
-  assert.equal(messages.length,2,'the new user bubble may appear after generation starts; the existing setup messages stay intact');
+  assert.equal(messages.length,3,'the exact sent prompt is now the latest user bubble');
   assert.ok(snapshots.some(item=>item.type==='AGENTSYNC_CHAT_SNAPSHOT'&&item.snapshot.state==='GENERATING'));
 });
 

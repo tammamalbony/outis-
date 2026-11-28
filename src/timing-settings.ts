@@ -5,6 +5,7 @@ export type TimingSettings={
   composerTextTimeoutMs:number;
   sendControlTimeoutMs:number;
   submissionTimeoutMs:number;
+  deliveryReconcileTimeoutMs:number;
   conversationLinkGraceMs:number;
   conversationLinkStableMs:number;
   conversationLinkTimeoutMs:number;
@@ -26,6 +27,7 @@ export const DEFAULT_TIMING_SETTINGS:TimingSettings={
   composerTextTimeoutMs:4_000,
   sendControlTimeoutMs:5_000,
   submissionTimeoutMs:10_000,
+  deliveryReconcileTimeoutMs:20_000,
   conversationLinkGraceMs:5_000,
   conversationLinkStableMs:1_500,
   conversationLinkTimeoutMs:30_000,
@@ -47,6 +49,7 @@ const ranges:Record<keyof TimingSettings,{min:number;max:number}>={
   composerTextTimeoutMs:{min:0,max:60_000},
   sendControlTimeoutMs:{min:0,max:60_000},
   submissionTimeoutMs:{min:1_000,max:120_000},
+  deliveryReconcileTimeoutMs:{min:5_000,max:120_000},
   conversationLinkGraceMs:{min:0,max:120_000},
   conversationLinkStableMs:{min:0,max:30_000},
   conversationLinkTimeoutMs:{min:1_000,max:180_000},

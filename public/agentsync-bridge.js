@@ -16,7 +16,7 @@
   let priorUserCount=0;
   let submittedUntil=0;
   const detectedFlow=[];
-  const defaultTimings={pageSettleMs:5000,sessionReadyTimeoutMs:20000,sessionStableMs:3000,composerTextTimeoutMs:4000,sendControlTimeoutMs:5000,submissionTimeoutMs:10000,conversationLinkGraceMs:5000,conversationLinkStableMs:1500,conversationLinkTimeoutMs:30000,tabReadyTimeoutMs:30000,bridgeReadyTimeoutMs:15000,pollIntervalMs:500,assistantStableMs:1500,snapshotDebounceMs:700,chatSnapshotPollMs:5000,setupReplyTimeoutMs:120000,a0ResponseTimeoutMs:180000,githubRequestTimeoutMs:20000};
+  const defaultTimings={pageSettleMs:5000,sessionReadyTimeoutMs:20000,sessionStableMs:3000,composerTextTimeoutMs:4000,sendControlTimeoutMs:5000,submissionTimeoutMs:10000,deliveryReconcileTimeoutMs:20000,conversationLinkGraceMs:5000,conversationLinkStableMs:1500,conversationLinkTimeoutMs:30000,tabReadyTimeoutMs:30000,bridgeReadyTimeoutMs:15000,pollIntervalMs:500,assistantStableMs:1500,snapshotDebounceMs:700,chatSnapshotPollMs:5000,setupReplyTimeoutMs:120000,a0ResponseTimeoutMs:180000,githubRequestTimeoutMs:20000};
   let timings={...defaultTimings};
   const deliveries = new Map();
   const delivered = new Set();
@@ -29,6 +29,7 @@
     return (result >>> 0).toString(36);
   };
   const textOf = (node) => (node?.innerText || node?.textContent || '').replace(/\s+$/g, '').slice(0, 40_000);
+  const fullTextOf=node=>String(node?.innerText||node?.textContent||'').replace(/\s+$/g,'');
   const userMessages = () => [...new Set(document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble="true"]'))];
   const composer = () => document.querySelector('[data-testid="prompt-textarea"]')
     || document.querySelector('textarea[placeholder]')
@@ -383,21 +384,22 @@
     }
     return false;
   }
-  async function waitForSubmission(prompt,beforeCount,priorUrl,settings){
-    const timeoutMs=settings.submissionTimeoutMs;
+  function latestUserMessageMatches(marker,expectedText){
+    const latest=userMessages().at(-1);
+    const actual=fullTextOf(latest);
+    const composerEmpty=!normalizeText(composerText(composer()));
+    return {matches:Boolean(latest&&actual.includes(marker)&&normalizeText(actual)===normalizeText(expectedText)),composerEmpty,actual};
+  }
+  async function waitForSubmission(marker,expectedText,beforeCount,settings){
+    const timeoutMs=settings.deliveryReconcileTimeoutMs;
     const deadline=Date.now()+timeoutMs;
     while(Date.now()<deadline){
-      if(accountChanged())throw new Error('ChatGPT reports the signed-in account changed. Submission is uncertain; AgentSync will not retry automatically.');
-      if(visibleError())throw new Error('ChatGPT displayed an error while submitting. AgentSync will not retry automatically.');
-      const currentUsers=userMessages();
-      const currentComposer=composer();
-      const conversationOpened=location.pathname.startsWith('/c/')&&location.href!==priorUrl;
-      const posted=currentUsers.length>beforeCount&&currentUsers.slice(beforeCount).some(node=>textOf(node).includes(prompt));
-      if(stopControl()||!normalizeText(composerText(currentComposer))&&(posted||conversationOpened))return true;
+      const evidence=latestUserMessageMatches(marker,expectedText);
+      if(userMessages().length>beforeCount&&evidence.matches&&evidence.composerEmpty)return {confirmed:true};
       await wait(settings.pollIntervalMs);
     }
-    const currentComposer=composer();
-    return !normalizeText(composerText(currentComposer))&&userMessages().slice(beforeCount).some(node=>textOf(node).includes(prompt));
+    const evidence=latestUserMessageMatches(marker,expectedText);
+    return {confirmed:userMessages().length>beforeCount&&evidence.matches&&evidence.composerEmpty,composerEmpty:evidence.composerEmpty,messageFound:evidence.matches,latestUserMessage:evidence.actual.slice(0,500)};
   }
 
   async function submitTextOnce(message) {
@@ -406,10 +408,11 @@
     if(typeof message.dedupeKey!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(message.dedupeKey))throw new Error('Missing or invalid AgentSync delivery ID.');
     const marker=`AgentSync delivery ID: ${message.dedupeKey}`;
     const priorUsers=userMessages();
-    if(priorUsers.some(node=>textOf(node).includes(marker)))return {submitted:true,duplicate:true};
-    const before=priorUsers.length;
     if (typeof message.text !== 'string' || !message.text.trim()) throw new Error('AgentSync prompt is empty.');
     if (message.text.length > 250_000) throw new Error(`AgentSync prompt has ${message.text.length.toLocaleString()} characters; the current bridge limit is 250,000.`);
+    const priorDelivery=latestUserMessageMatches(marker,message.text);
+    if(priorDelivery.matches&&priorDelivery.composerEmpty)return {submitted:true,duplicate:true};
+    const before=priorUsers.length;
     const input=await waitForSessionReady(settings.sessionReadyTimeoutMs,settings);
     const existingDraft=normalizeText(composerText(input));
     const exactAgentSyncDraft=existingDraft===normalizeText(message.text)&&existingDraft.includes(marker);
@@ -417,7 +420,6 @@
     if(readSnapshot().state!=='IDLE'&&!exactAgentSyncDraft&&!freshHome)throw new Error('Chat is not confirmed idle. Inspect the registered conversation before retrying.');
     if(existingDraft&&!exactAgentSyncDraft&&!freshHome)throw new Error('The ChatGPT composer contains a different unsent draft. Submit or remove it yourself before AgentSync continues.');
     if(exactAgentSyncDraft&&(stopControl()||visibleError()))throw new Error('ChatGPT is generating or showing an error. Wait for it to settle before resuming the saved AgentSync draft.');
-    const priorUrl=location.href;
     let activeInput=input;
     if(freshHome)activeInput=await settleNewChatComposer(input,settings);
     activeInput=composer()||activeInput;
@@ -428,8 +430,9 @@
     const send=sendControl(activeInput);
     if (!send) throw new Error('ChatGPT send arrow is unavailable.');
     send.click();
-    if(await waitForSubmission(marker,before,priorUrl,settings)){queueMicrotask(sendSnapshot);return {submitted:true};}
-    throw new Error('Submission result is uncertain; AgentSync will not retry automatically.');
+    const confirmation=await waitForSubmission(marker,message.text,before,settings);
+    if(confirmation.confirmed){queueMicrotask(sendSnapshot);return {submitted:true};}
+    return {submitted:false,uncertain:true,error:`Could not confirm the exact last user message after ${settings.deliveryReconcileTimeoutMs/1000} seconds${confirmation.messageFound&&!confirmation.composerEmpty?'; the composer still contains text':''}. AgentSync will reload once and compare the saved delivery ID; it will not resend automatically.`};
   }
 
   async function createChat(message) {
@@ -440,6 +443,7 @@
     const key=message.dedupeKey;
     if(typeof key!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(key))throw new Error('Missing or invalid AgentSync delivery ID.');
     const result=await submitText({conversationUrl:cleanUrl(),dedupeKey:key,text:`${message.text}\n\nAgentSync delivery ID: ${key}`,allowFreshChat:true,timings:settings});
+    if(result?.uncertain)return {...result,conversationUrl:''};
     const submittedAt=Date.now();
     let candidateUrl='',candidateSince=0;
     const deadline=Date.now()+settings.conversationLinkTimeoutMs;
@@ -552,6 +556,18 @@
       sendResponse(readTestSnapshot());
       return false;
     }
+    if(message?.type==='AGENTSYNC_VERIFY_LAST_USER_MESSAGE'){
+      const key=message.dedupeKey,text=message.text;
+      if(location.origin!=='https://chatgpt.com'){sendResponse({confirmed:false,error:'Delivery verification is only available on chatgpt.com.'});return false;}
+      if(typeof key!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(key)||typeof text!=='string'||text.length>250_000||!text.includes(`AgentSync delivery ID: ${key}`)){
+        sendResponse({confirmed:false,error:'The saved delivery ID or expected prompt is invalid.'});return false;
+      }
+      if(message.conversationUrl&&message.conversationUrl!==cleanUrl()&&!message.allowNewConversation){sendResponse({confirmed:false,error:'The conversation URL changed during delivery verification.'});return false;}
+      const evidence=latestUserMessageMatches(`AgentSync delivery ID: ${key}`,text);
+      const voiceVisible=Boolean(voiceButton());
+      sendResponse({confirmed:evidence.matches&&evidence.composerEmpty,found:evidence.matches,composerEmpty:evidence.composerEmpty,voiceVisible,conversationUrl:cleanUrl(),latestUserMessage:evidence.actual.slice(0,500),reason:evidence.matches&&!evidence.composerEmpty?'The delivery ID is visible, but the composer still contains text.':evidence.matches?'The exact last user message and an empty composer are confirmed.':'The latest user message does not match the saved prompt and delivery ID.'});
+      return false;
+    }
     if(message?.type==='AGENTSYNC_TEST_STOP_GENERATION'){
       const stop=stopControl();
       if(!stop){sendResponse({stopped:false,reason:'No enabled ChatGPT stop button is visible.'});return false;}
@@ -572,7 +588,7 @@
         return false;
       }
       const settings=resolveTimings(message.timings);
-      submitText({conversationUrl:cleanUrl(),dedupeKey:key,text,allowFreshChat:false,timings:settings}).then(sendResponse,error=>sendResponse({error:error instanceof Error?error.message:'Test prompt submission failed.'}));
+      submitText({conversationUrl:cleanUrl(),dedupeKey:key,text,allowFreshChat:true,timings:settings}).then(sendResponse,error=>sendResponse({error:error instanceof Error?error.message:'Test prompt submission failed.'}));
       return true;
     }
     if(message?.type==='AGENTSYNC_TEST_ARCHIVE_CHAT'||message?.type==='AGENTSYNC_TEST_DELETE_CHAT'){

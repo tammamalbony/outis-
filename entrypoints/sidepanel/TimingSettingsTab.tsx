@@ -10,6 +10,7 @@ const timingFields:{key:keyof TimingSettings;label:string;unit:string}[]=[
 {key:'composerTextTimeoutMs',label:'Maximum wait for prompt text to appear',unit:'ms'},
 {key:'sendControlTimeoutMs',label:'Maximum wait for the send arrow',unit:'ms'},
 {key:'submissionTimeoutMs',label:'Maximum wait to confirm a prompt was sent',unit:'ms'},
+{key:'deliveryReconcileTimeoutMs',label:'Wait for the exact sent message before reloading ChatGPT',unit:'ms'},
 {key:'conversationLinkGraceMs',label:'Wait after the first message before saving a new chat link',unit:'ms'},
 {key:'conversationLinkStableMs',label:'How long the new chat link must stay unchanged',unit:'ms'},
 {key:'conversationLinkTimeoutMs',label:'Maximum wait for a new chat link',unit:'ms'},

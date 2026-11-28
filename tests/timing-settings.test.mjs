@@ -5,6 +5,7 @@ import {DEFAULT_TIMING_SETTINGS,readTimingSettings,validateTimingSettings} from 
 test('timing settings provide configurable workflow defaults and read partial saved values',()=>{
  assert.equal(DEFAULT_TIMING_SETTINGS.pageSettleMs,5_000);
  assert.equal(DEFAULT_TIMING_SETTINGS.conversationLinkGraceMs,5_000);
+ assert.equal(DEFAULT_TIMING_SETTINGS.deliveryReconcileTimeoutMs,20_000);
  assert.equal(DEFAULT_TIMING_SETTINGS.chatSnapshotPollMs,5_000);
  assert.deepEqual(readTimingSettings({pageSettleMs:7_000,chatRefreshSeconds:60}),{...DEFAULT_TIMING_SETTINGS,pageSettleMs:7_000});
  assert.deepEqual(readTimingSettings(null),DEFAULT_TIMING_SETTINGS);

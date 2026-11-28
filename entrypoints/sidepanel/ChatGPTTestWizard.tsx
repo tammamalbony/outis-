@@ -7,6 +7,8 @@ type Probe={href:string;hasConversationUrl:boolean;conversationUrl:string;pageLo
 type Milestone='voice'|'arrow'|'submitted'|'stop'|'voice-again';
 type TestRunPhase='IDLE'|'RUNNING'|'PASSED'|'FAILED'|'STOPPED';
 type TestRunResult={status:'waiting'|'running'|'passed'|'stopped'|'failed';detail:string};
+type TestStepMetric={attempts:number;startedAt?:number;durationMs:number};
+type TestRetryEvent={step:string;at:string;detail:string};
 type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCount?:number};
 const stages:Milestone[]=['voice','arrow','submitted','stop','voice-again'];
 const names:Record<Milestone,string>={voice:'Voice ready',arrow:'Arrow ready',submitted:'Prompt submitted',stop:'Generating', 'voice-again':'Voice returned'};
@@ -33,6 +35,10 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
   const testStopDetail=useRef('');
   const testCheckpoint=useRef(0);
   const testContext=useRef<TestRunContext|undefined>(undefined);
+  const manualDemoKey=useRef<string|undefined>(undefined);
+  const testStepMetrics=useRef<TestStepMetric[]>(testRunSteps.map(()=>({attempts:0,durationMs:0})));
+  const testRetryEvents=useRef<TestRetryEvent[]>([]);
+  const testRunStartedAt=useRef<number|undefined>(undefined);
   useEffect(()=>{
     let cancelled=false;
     void browser.permissions.contains({origins:['https://chatgpt.com/*']}).then(async granted=>{
@@ -60,7 +66,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       setTabId(tab.id);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
   }
-  async function waitForTestSnapshot(id:number,predicate:(value:Probe)=>boolean,timeoutMs:number,cancellable=false){
+  async function waitForTestSnapshot(id:number,predicate:(value:Probe)=>boolean,timeoutMs:number,cancellable=false,onSnapshot?:(value:Probe)=>Promise<void>|void){
     const deadline=Date.now()+timeoutMs;
     while(Date.now()<deadline){
       if(cancellable&&testStopRequested.current)throw new Error('Stop requested.');
@@ -72,11 +78,12 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       }
       if(!url.startsWith('https://chatgpt.com/'))throw new Error(`The test tab left chatgpt.com (current URL: ${url}).`);
       if(tab.status==='complete'){
+        let value:Probe|undefined;
         try{
           await browser.scripting.executeScript({target:{tabId:id},files:['agentsync-bridge.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);
-          const value=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
-          if(value){setProbe(value);if(predicate(value))return value;}
+          value=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
         }catch{/* The content bridge may not be ready until the next poll. */}
+        if(value){setProbe(value);await onSnapshot?.(value);if(predicate(value))return value;}
       }
       await new Promise(resolve=>window.setTimeout(resolve,500));
     }
@@ -84,12 +91,19 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
   }
   function beginTestStep(index:number,message:string){
     if(testStopRequested.current)throw new Error('Stop requested.');
+    const metric=testStepMetrics.current[index];
+    if(metric){metric.attempts+=1;metric.startedAt=Date.now();}
+    if(!testRunStartedAt.current)testRunStartedAt.current=Date.now();
     testCheckpoint.current=index;setTestRunStep(index);setTestRunMessage(message);
     setTestRunResults(old=>old.map((item,i)=>i===index?{status:'running',detail:message}:item));
   }
   function passTestStep(index:number,detail:string){
+    const metric=testStepMetrics.current[index];if(metric?.startedAt){metric.durationMs+=Date.now()-metric.startedAt;metric.startedAt=undefined;}
     setTestRunResults(old=>old.map((item,i)=>i===index?{status:'passed',detail}:item));
     testCheckpoint.current=index+1;
+  }
+  function recordTestRetry(index:number,detail:string){
+    testRetryEvents.current.push({step:testRunSteps[index]??`Step ${index+1}`,at:new Date().toISOString(),detail});
   }
   function markTestMilestone(stage:Milestone){
     const index=stages.indexOf(stage);
@@ -105,7 +119,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
     if(action==='RESUME'&&!testContext.current){setError('This run has no saved test tab to resume. Choose Restart test.');return;}
     const restarting=action!=='RESUME';
     const previousTestKept=action==='RESTART'&&Boolean(testContext.current);
-    if(restarting){testContext.current=undefined;testCheckpoint.current=0;setTestRunResults(testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));setSequence([]);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;setBaseline(0);}
+    if(restarting){testContext.current=undefined;testCheckpoint.current=0;testStepMetrics.current=testRunSteps.map(()=>({attempts:0,durationMs:0}));testRetryEvents.current=[];testRunStartedAt.current=undefined;manualDemoKey.current=undefined;setTestRunResults(testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));setSequence([]);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;setBaseline(0);}
     testStopRequested.current=false;testStopDetail.current='';testRunActive.current=true;setTestRunPhase('RUNNING');setControlBusy(true);setError('');setChatActionStatus('');effortTouched.current=false;
     const context=testContext.current;
     if(!context)setTabId(undefined);else setTabId(context.tabId);
@@ -144,10 +158,18 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       }
       if(testCheckpoint.current<=4){
         beginTestStep(4,'Waiting for an empty composer, enabled voice button, Chat mode, and High effort…');
-        const ready=await waitForTestSnapshot(id,value=>value.state==='NEW'&&value.composerEmpty&&value.voiceVisible&&value.voiceEnabled&&value.composerMode==='CHAT'&&value.effort==='HIGH',30_000,true);
+        let restoredDraftsCleared=0;
+        const ready=await waitForTestSnapshot(id,value=>value.state==='NEW'&&value.composerEmpty&&value.voiceVisible&&value.voiceEnabled&&value.composerMode==='CHAT'&&value.effort==='HIGH',30_000,true,async value=>{
+          if(value.composerVisible&&!value.composerEmpty){
+            if(restoredDraftsCleared>=3)throw new Error('ChatGPT restored draft text three times. The composer is not empty, so the voice-ready state cannot be confirmed. The prompt was not submitted.');
+            restoredDraftsCleared+=1;recordTestRetry(4,`Composer was non-empty (${value.composerLength} characters); clearing restored draft attempt ${restoredDraftsCleared}.`);setTestRunMessage('ChatGPT restored an old draft after loading. Clearing it and waiting for the empty-composer voice button…');
+            const cleared=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_CLEAR_COMPOSER'}) as {confirmed?:boolean;error?:string}|undefined;
+            if(cleared?.error||cleared?.confirmed!==true)throw new Error(cleared?.error||'ChatGPT did not confirm clearing the restored draft; voice readiness remains unconfirmed.');
+          }
+        });
         ctx.userMessageCount=ready.userMessageCount;setBaseline(ready.userMessageCount);previousTestUserCount.current=ready.userMessageCount;
         markTestMilestone('voice');
-        passTestStep(4,`Ready: new-chat URL, empty composer, voice enabled, Chat selected, High effort selected (${ready.userMessageCount} existing user messages).`);
+        passTestStep(4,`Ready: new-chat URL, empty composer, voice enabled, Chat selected, High effort selected. ${restoredDraftsCleared?`Cleared ${restoredDraftsCleared} late-restored draft(s).`:'Composer stayed empty after load.'}`);
       }
       if(testCheckpoint.current<=5){
         beginTestStep(5,'Preparing the labeled test prompt and checking the enabled arrow…');
@@ -171,12 +193,23 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         const before=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
         if(!before)throw new Error('Could not confirm the prompt state before submission.');
         if(before.composerEmpty&&ctx.userMessageCount!==undefined&&before.userMessageCount>ctx.userMessageCount){
-          passTestStep(6,'Prompt was already accepted before resume; it was not sent again.');
+          const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:before.conversationUrl,dedupeKey:ctx.promptKey,text:ctx.prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
+          if(proof?.confirmed!==true)throw new Error(`Composer is empty, but the exact saved test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). It was not resent; the test chat was kept for inspection.`);
+          markTestMilestone('submitted');
+          passTestStep(6,'On resume, confirmed the exact latest user message, saved delivery ID, and empty composer; it was not sent again.');
         }else{
-          const submitted=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SEND_DEMO',dedupeKey:ctx.promptKey,text:ctx.prompt}) as {submitted?:boolean;duplicate?:boolean;error?:string}|undefined;
+          const promptKey=ctx.promptKey,prompt=ctx.prompt;
+          if(!promptKey||!prompt)throw new Error('Saved test prompt or delivery ID is missing; nothing was submitted.');
+          let submitted=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SEND_DEMO',dedupeKey:promptKey,text:prompt}) as {submitted?:boolean;duplicate?:boolean;uncertain?:boolean;error?:string}|undefined;
+          if(submitted?.uncertain){
+            recordTestRetry(6,'Submission was uncertain; reloaded ChatGPT once and checked the exact latest user message and delivery ID. No resend was attempted.');
+            const recovered=await chatAdapter.reconcileSubmission(id,'https://chatgpt.com/',promptKey,prompt,true);
+            if(!recovered.confirmed)throw new Error(`${submitted.error??'ChatGPT did not confirm prompt submission.'} After one reload: ${recovered.reason} The prompt was not resent; the test chat was kept for inspection.`);
+            submitted={submitted:true,duplicate:true};
+          }
           if(submitted?.error||submitted?.submitted!==true)throw new Error(submitted?.error||'ChatGPT did not confirm prompt submission. The test chat was kept for inspection.');
           markTestMilestone('submitted');
-          passTestStep(6,submitted.duplicate?'Submission was already recorded for this delivery ID; no duplicate prompt was sent.':'ChatGPT confirmed the test prompt was submitted.');
+          passTestStep(6,submitted.duplicate?'The exact last user message and empty composer confirmed delivery; no duplicate prompt was sent.':'ChatGPT confirmed the test prompt was submitted.');
         }
       }
       if(testCheckpoint.current<=7){
@@ -184,10 +217,8 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         let reply=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
         if(!reply)throw new Error('Could not inspect the test chat after submission.');
         if(!(reply.state==='IDLE'&&reply.composerEmpty&&reply.voiceEnabled&&reply.latestReplyFirstLine.toLowerCase().includes('agentsync test received'))){
-          const working=await waitForTestSnapshot(id,value=>value.state==='WORKING',30_000,true);
-          markTestMilestone('stop');
-          reply=await waitForTestSnapshot(id,value=>value.state==='IDLE'&&value.composerEmpty&&value.voiceEnabled&&value.latestReplyFirstLine.toLowerCase().includes('agentsync test received'),120_000,true);
-          if(working.state!=='WORKING')throw new Error('ChatGPT did not expose its working state after submission.');
+          if(reply.state==='WORKING')markTestMilestone('stop');
+          reply=await waitForTestSnapshot(id,value=>value.state==='IDLE'&&value.composerEmpty&&value.voiceEnabled&&value.latestReplyFirstLine.toLowerCase().includes('agentsync test received'),120_000,true,value=>{if(value.state==='WORKING')markTestMilestone('stop');});
         }
         markTestMilestone('voice-again');
         passTestStep(7,`Reply verified; ChatGPT returned to idle with voice enabled. First line: “${reply.latestReplyFirstLine}”`);
@@ -207,9 +238,11 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       const reason=e instanceof Error?e.message:String(e);
       if(testStopRequested.current){
         const detail=`Stopped at “${testRunSteps[testCheckpoint.current]??'test cleanup'}” by request. ${testStopDetail.current}${reason==='Stop requested.'?' No later test steps were run.':` ${reason}`}`;
+        const metric=testStepMetrics.current[testCheckpoint.current];if(metric?.startedAt){metric.durationMs+=Date.now()-metric.startedAt;metric.startedAt=undefined;}
         setTestRunPhase('STOPPED');setTestRunMessage(detail);setTestRunResults(old=>old.map((item,i)=>i===testCheckpoint.current?{status:'stopped',detail}:item));
       }else{
         const detail=`Stopped at “${testRunSteps[testCheckpoint.current]??'test cleanup'}”: ${reason}`;
+        const metric=testStepMetrics.current[testCheckpoint.current];if(metric?.startedAt){metric.durationMs+=Date.now()-metric.startedAt;metric.startedAt=undefined;}
         setTestRunPhase('FAILED');setTestRunMessage(detail);setError(detail);setTestRunResults(old=>old.map((item,i)=>i===testCheckpoint.current?{status:'failed',detail}:item));
       }
     }finally{testRunActive.current=false;setControlBusy(false);}
@@ -252,11 +285,62 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
     if(tabId===undefined)return;
     setControlBusy(true);setError('');
     try{
-      const result=await browser.tabs.sendMessage(tabId,{type:clear?'AGENTSYNC_TEST_CLEAR_COMPOSER':'AGENTSYNC_TEST_SET_COMPOSER_TEXT',text:'AgentSync demo: please reply with “Demo received.”'}) as {confirmed?:boolean;error?:string}|undefined;
+      if(clear)manualDemoKey.current=undefined;
+      else if(!manualDemoKey.current)manualDemoKey.current=`test_${crypto.randomUUID()}`;
+      const text=clear?'':`AgentSync demo: please reply with “Demo received.”\n\nAgentSync delivery ID: ${manualDemoKey.current}`;
+      const result=await browser.tabs.sendMessage(tabId,{type:clear?'AGENTSYNC_TEST_CLEAR_COMPOSER':'AGENTSYNC_TEST_SET_COMPOSER_TEXT',text}) as {confirmed?:boolean;error?:string}|undefined;
       if(result?.error||result?.confirmed!==true)throw new Error(result?.error||'ChatGPT did not confirm the composer change.');
       const snapshot=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
       if(snapshot)setProbe(snapshot);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
+  }
+  async function sendDemoText(){
+    if(tabId===undefined)return;
+    setControlBusy(true);setError('');setChatActionStatus('');
+    try{
+      const key=manualDemoKey.current;
+      const snapshot=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
+      if(!key||!snapshot?.composerText.includes(`AgentSync delivery ID: ${key}`))throw new Error('No staged AgentSync demo prompt was found. Click Post demo text first; unrelated composer text will not be submitted.');
+      const text=snapshot.composerText;
+      const result=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SEND_DEMO',dedupeKey:key,text}) as {submitted?:boolean;duplicate?:boolean;uncertain?:boolean;error?:string}|undefined;
+      if(result?.uncertain){
+        const recovered=await chatAdapter.reconcileSubmission(tabId,snapshot.hasConversationUrl?snapshot.conversationUrl:'https://chatgpt.com/',key,text,!snapshot.hasConversationUrl);
+        if(!recovered.confirmed)throw new Error(`${result.error??'Send status is uncertain.'} After one reload: ${recovered.reason} The demo prompt was not resent.`);
+        setChatActionStatus('Demo prompt delivery confirmed after reloading ChatGPT by matching the exact last user message and delivery ID.');
+      }else if(result?.error||result?.submitted!==true)throw new Error(result?.error||'ChatGPT did not confirm the demo prompt submission.');
+      else setChatActionStatus(result.duplicate?'This delivery ID was already submitted; no duplicate prompt was sent.':'Demo prompt sent and confirmed.');
+      const updated=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
+      if(updated)setProbe(updated);
+    }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
+  }
+  async function copyTestReport(){
+    const elapsedMs=testRunStartedAt.current?Date.now()-testRunStartedAt.current:0;
+    const lines=[
+      'AgentSync ChatGPT test report',
+      `Outcome: ${testRunPhase}`,
+      `Generated: ${new Date().toISOString()}`,
+      `Elapsed: ${(elapsedMs/1000).toFixed(1)} seconds`,
+      `Stopped at: ${testRunPhase==='PASSED'?'none — all steps passed':testRunSteps[testCheckpoint.current]??'unknown'}`,
+      `Reason / summary: ${testRunMessage||error||'No run summary recorded.'}`,
+      `Test tab ID: ${testContext.current?.tabId??tabId??'unknown'}`,
+      `Delivery ID: ${testContext.current?.promptKey??'none'}`,
+      '',
+      'Steps:'
+    ];
+    testRunSteps.forEach((step,index)=>{
+      const metric=testStepMetrics.current[index];const result=testRunResults[index];
+      const duration=(metric?.durationMs??0)+(metric?.startedAt?Date.now()-metric.startedAt:0);
+      lines.push(`${index+1}. ${step} | status: ${result?.status??'waiting'} | attempts: ${metric?.attempts??0} | elapsed: ${(duration/1000).toFixed(1)}s | ${result?.detail??'Not started'}`);
+    });
+    lines.push('','Retries and recovery events:');
+    if(testRetryEvents.current.length)for(const event of testRetryEvents.current)lines.push(`- ${event.at} | ${event.step} | ${event.detail}`);else lines.push('- None recorded.');
+    lines.push('','Observed ChatGPT state:');
+    if(probe){
+      lines.push(`URL: ${probe.href}`,`Conversation URL detected: ${probe.hasConversationUrl?'yes':'no'}`,`Page loaded: ${probe.pageLoaded?'yes':'no'}`,`State: ${probe.state}`,`Composer: ${probe.composerVisible?(probe.composerEmpty?'empty':`contains ${probe.composerLength} characters`):'not detected'}`,`Mode: ${probe.composerMode}`,`Effort: ${probe.effort}`,`Voice: visible=${probe.voiceVisible}, enabled=${probe.voiceEnabled}`,`Arrow: visible=${probe.arrowVisible}, enabled=${probe.arrowEnabled}`,`Stop: visible=${probe.stopVisible}, enabled=${probe.stopEnabled}`,`User message count: ${probe.userMessageCount}`,`Latest reply first line: ${probe.latestReplyFirstLine||'(none detected)'}`,`Last snapshot: ${probe.observedAt}`);
+    }else lines.push('No ChatGPT snapshot available.');
+    lines.push('','Observed sequence:',...(sequence.length?sequence.map(item=>`- ${item.at}: ${item.stage}`):['- No milestones recorded.']));
+    try{await navigator.clipboard.writeText(lines.join('\n'));setChatActionStatus('Test report copied to clipboard.');}
+    catch(e){setError(`Could not copy the test report: ${e instanceof Error?e.message:String(e)}`);}
   }
   useEffect(()=>{
     if(tabId===undefined)return;
@@ -319,7 +403,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void openNew()}>{busy?'Opening…':'Open new chat'}</button><button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={async()=>{const [tab]=await browser.tabs.query({active:true,currentWindow:true});if(tab?.id!==undefined)void watchTab(tab.id);else setError('No active browser tab was found.');}}>Watch active tab</button><button type="button" className="secondary-button" disabled={!tabId||controlBusy} onClick={resetSequence}>Reset sequence</button>
       </div>
     </div>
-    {(testRunPhase!=='IDLE'||testRunMessage)&&<section className="panel" aria-live="polite"><h3>One-click test progress</h3><p className={testRunPhase==='FAILED'||testRunPhase==='STOPPED'?'error':testRunPhase==='PASSED'?'notice':''} role="status">{testRunMessage}</p><ol className="chat-test-sequence">{testRunSteps.map((step,index)=>{const result=testRunResults[index]??{status:'waiting' as const,detail:'Not started'};return <li key={step} data-reached={result.status==='passed'} data-active={result.status==='running'} data-failed={result.status==='failed'||result.status==='stopped'}><span>{result.status==='passed'?'✓':result.status==='failed'?'!':result.status==='stopped'?'Ⅱ':result.status==='running'?'…':index+1}</span><div><strong>{step}</strong><small>{result.detail}</small></div></li>;})}</ol>{testRunPhase==='FAILED'||testRunPhase==='STOPPED'?<p className="chat-test-control-note">Resume continues from the stopped step. Restart creates a new temporary test chat; the previous chat stays open for inspection.</p>:null}</section>}
+    {(testRunPhase!=='IDLE'||testRunMessage)&&<section className="panel" aria-live="polite"><h3>One-click test progress</h3><p className={testRunPhase==='FAILED'||testRunPhase==='STOPPED'?'error':testRunPhase==='PASSED'?'notice':''} role="status">{testRunMessage}</p><ol className="chat-test-sequence">{testRunSteps.map((step,index)=>{const result=testRunResults[index]??{status:'waiting' as const,detail:'Not started'};return <li key={step} data-reached={result.status==='passed'} data-active={result.status==='running'} data-failed={result.status==='failed'||result.status==='stopped'}><span>{result.status==='passed'?'✓':result.status==='failed'?'!':result.status==='stopped'?'Ⅱ':result.status==='running'?'…':index+1}</span><div><strong>{step}</strong><small>{result.detail}</small></div></li>;})}</ol>{testRunPhase==='FAILED'||testRunPhase==='STOPPED'?<p className="chat-test-control-note">Resume continues from the stopped step. Restart creates a new temporary test chat; the previous chat stays open for inspection.</p>:null}{(testRunPhase==='PASSED'||testRunPhase==='FAILED'||testRunPhase==='STOPPED')&&<button type="button" className="secondary-button" onClick={()=>void copyTestReport()}>Copy test report</button>}</section>}
     {error&&<p className="error" role="alert">{error}</p>}
     {!probe?<section className="panel"><strong>Waiting for ChatGPT</strong><p>Open a new chat or watch an active ChatGPT tab. The wizard needs permission to inspect the tab’s composer buttons and URL.</p></section>:<>
       <section className="panel"><div className="chat-test-state"><span className={`chat-state-dot state-${probe.state.toLowerCase()}`}/><div><p className="eyebrow">CURRENT STATE</p><h3>{probe.state.replace('_',' ')}</h3></div></div><p>{explanations[probe.state]}</p><dl className="chat-test-facts">
@@ -329,7 +413,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         <div><dt>Stop button</dt><dd>{probe.stopVisible?probe.stopEnabled?'Visible · enabled':'Visible · disabled':'Not visible'}</dd></div><div><dt>Pause button</dt><dd>{probe.pauseVisible?probe.pauseEnabled?'Visible':'Visible · disabled':'Not visible'}</dd></div>
         <div><dt>Prompt submitted</dt><dd>{submitted?'Detected — composer cleared after a new user message':'Not detected'}</dd></div>
       </dl><p className="chat-test-saved-name">Saved chat: <strong>{savedAgent?.chatName??(savedAgent?`A${savedAgent.number} · ${savedAgent.role}`:probe.hasConversationUrl?'Not registered with an AgentSync agent':'New chat · not saved yet')}</strong></p><small className="chat-test-url">Tab URL: {probe.href}</small></section>
-      <section className="panel"><h3>Composer controls</h3><p>Change the selected ChatGPT mode and thinking effort in the watched tab.</p><div className="chat-test-controls" role="group" aria-label="Composer mode controls"><button type="button" aria-pressed={probe.composerMode==='CHAT'} disabled={controlBusy||probe.composerMode==='CHAT'} onClick={()=>void setMode('CHAT')}>Chat</button><button type="button" className="secondary-button" aria-pressed={probe.composerMode==='WORK'} disabled={controlBusy||probe.composerMode==='WORK'} onClick={()=>void setMode('WORK')}>Work</button></div><label className="chat-test-effort">Effort: <strong>{(['Low','Medium','High'] as const)[effortDraft]}</strong><input type="range" min="0" max="2" step="1" value={effortDraft} aria-label="ChatGPT effort" disabled={controlBusy} onChange={e=>{effortTouched.current=true;setEffortDraft(Number(e.currentTarget.value));}}/><span className="chat-test-effort-labels"><span>Low</span><span>Medium</span><span>High</span></span></label><button type="button" className="secondary-button" disabled={controlBusy||probe.effort===(['LOW','MEDIUM','HIGH'] as const)[effortDraft]} onClick={()=>void setEffort(effortDraft)}>{controlBusy?'Applying…':'Apply effort'}</button><div className="chat-test-composer-buttons"><button type="button" disabled={controlBusy||!probe.composerVisible||!probe.composerEmpty} onClick={()=>void changeComposerText(false)}>Post demo text</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty} onClick={()=>void changeComposerText(true)}>Clear composer</button></div><small className="chat-test-control-note">These buttons only fill or clear the draft. They never submit it.</small></section>
+      <section className="panel"><h3>Composer controls</h3><p>Change the selected ChatGPT mode and thinking effort in the watched tab.</p><div className="chat-test-controls" role="group" aria-label="Composer mode controls"><button type="button" aria-pressed={probe.composerMode==='CHAT'} disabled={controlBusy||probe.composerMode==='CHAT'} onClick={()=>void setMode('CHAT')}>Chat</button><button type="button" className="secondary-button" aria-pressed={probe.composerMode==='WORK'} disabled={controlBusy||probe.composerMode==='WORK'} onClick={()=>void setMode('WORK')}>Work</button></div><label className="chat-test-effort">Effort: <strong>{(['Low','Medium','High'] as const)[effortDraft]}</strong><input type="range" min="0" max="2" step="1" value={effortDraft} aria-label="ChatGPT effort" disabled={controlBusy} onChange={e=>{effortTouched.current=true;setEffortDraft(Number(e.currentTarget.value));}}/><span className="chat-test-effort-labels"><span>Low</span><span>Medium</span><span>High</span></span></label><button type="button" className="secondary-button" disabled={controlBusy||probe.effort===(['LOW','MEDIUM','HIGH'] as const)[effortDraft]} onClick={()=>void setEffort(effortDraft)}>{controlBusy?'Applying…':'Apply effort'}</button><div className="chat-test-composer-buttons"><button type="button" disabled={controlBusy||!probe.composerVisible||!probe.composerEmpty} onClick={()=>void changeComposerText(false)}>Post demo text</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty} onClick={()=>void changeComposerText(true)}>Clear composer</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty||!manualDemoKey.current||!probe.composerText.includes(`AgentSync delivery ID: ${manualDemoKey.current}`)} onClick={()=>void sendDemoText()}>Send demo text</button></div><small className="chat-test-control-note">Post demo text stages a labeled prompt. Send demo text submits that prompt once and checks the last user message if delivery is uncertain. Clear composer removes the draft.</small>{chatActionStatus&&<p className="notice" role="status">{chatActionStatus}</p>}</section>
       <section className="panel"><h3>Chat menu tests</h3><p>These actions target the watched conversation. Delete asks for confirmation first.</p><div className="chat-test-composer-buttons"><button type="button" className="secondary-button" disabled={controlBusy||!probe.hasConversationUrl} onClick={()=>void testChatAction('OPEN')}>Open chat menu</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.hasConversationUrl} onClick={()=>void testChatAction('ARCHIVE')}>Archive chat</button><button type="button" className="danger-button" disabled={controlBusy||!probe.hasConversationUrl} onClick={()=>void testChatAction('DELETE')}>Delete chat</button></div>{chatActionStatus&&<p className="notice" role="status">{chatActionStatus}</p>}<small className="chat-test-control-note">The menu must show Archive and Delete before either action is clicked.</small></section>
       <section className="panel"><h3>Composer text</h3><pre className="chat-test-content">{probe.composerText||'(empty)'}{probe.composerTextTruncated?'\n… text clipped at 5,000 characters':''}</pre><h3>Latest reply</h3><p className="chat-test-reply">{probe.latestReplyFirstLine||'No assistant reply yet.'}</p><p className="chat-test-copy">Copy status: {probe.latestReplyCopyStatus==='COPIED'?'Copied':probe.latestReplyCopyStatus==='COPY_CLICKED'?'Copy clicked · waiting for visible confirmation':'Not copied'}</p></section>
       <section className="panel"><h3>State sequence</h3><ol className="chat-test-sequence">{stages.map((stage,index)=>{const reached=sequence[index]?.stage===stage;const help=stage==='voice'||stage==='voice-again'?'Empty composer and enabled voice control':stage==='arrow'?'Type a prompt; enabled arrow appears':stage==='submitted'?'Submit once; the composer clears and the user message appears':'Generation begins; the stop control appears';return <li key={`${stage}-${index}`} data-reached={reached}><span>{reached?'✓':index+1}</span><div><strong>{names[stage]}</strong><small>{reached?sequence[index].at:help}</small></div></li>;})}</ol>{complete&&<p className="notice">Test passed: the prompt was submitted, generation stopped, and the chat returned to idle.</p>}</section>

@@ -5,6 +5,32 @@ import {conversationUrl} from './core';
 import {loadTimingSettings} from './extension-settings';
 const origin='https://chatgpt.com/*';
 const bridgeScriptId='agentsync-registered-chat-bridge-v1';
+const wait=(milliseconds:number)=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+async function reconcileAfterReload(tabId:number,expectedUrl:string,dedupeKey:string,text:string,allowNewConversation=false){
+  const deliveryReconcileTimeoutMs=(await loadTimingSettings()).deliveryReconcileTimeoutMs;
+  const allowed=(tab:{url?:string})=>{
+    if(allowNewConversation)return tab.url==='https://chatgpt.com/'||tab.url==='https://chatgpt.com'||/^https:\/\/chatgpt\.com\/c\/[A-Za-z0-9-]+\/?$/.test(tab.url??'');
+    return Boolean(tab.url&&matchesConversation(tab,expectedUrl));
+  };
+  let tab=await browser.tabs.get(tabId);
+  if(!allowed(tab))return {confirmed:false,conversationUrl:'',reason:'The ChatGPT tab no longer matches the requested conversation.'};
+  await browser.tabs.reload(tabId);
+  const deadline=Date.now()+deliveryReconcileTimeoutMs;
+  let reason='The last user message was not available after reloading ChatGPT.';
+  while(Date.now()<deadline){
+    tab=await browser.tabs.get(tabId);
+    if(tab.pendingUrl||!tab.url||tab.status!=='complete'){await wait(500);continue;}
+    if(!allowed(tab))return {confirmed:false,conversationUrl:'',reason:'The ChatGPT tab changed to a different page during verification.'};
+    try{
+      await browser.scripting.executeScript({target:{tabId},files:['agentsync-bridge.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);
+      const proof=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:expectedUrl,dedupeKey,text,allowNewConversation}) as {confirmed?:boolean;reason?:string;conversationUrl?:string}|undefined;
+      if(proof?.confirmed===true)return {confirmed:true,conversationUrl:proof.conversationUrl??tab.url??'',reason:proof.reason??'Exact last user message and empty composer confirmed after reload.'};
+      reason=proof?.reason??reason;
+    }catch{/* Wait for the reloaded ChatGPT page and bridge to become available. */}
+    await wait(500);
+  }
+  return {confirmed:false,conversationUrl:'',reason:`${reason} No prompt was resent.`};
+}
 const port:TabPort={
   list:()=>browser.tabs.query({url:'https://chatgpt.com/c/*'}),
   get:id=>browser.tabs.get(id),
@@ -28,6 +54,9 @@ export const chatAdapter = {
   },
   async enableTabReuse(){return browser.permissions.request({origins:[origin]});},
   async ensureChatAccess(){return await browser.permissions.contains({origins:[origin]})||browser.permissions.request({origins:[origin]});},
+  async reconcileSubmission(tabId:number,expectedUrl:string,dedupeKey:string,text:string,allowNewConversation=false){
+    return reconcileAfterReload(tabId,expectedUrl,dedupeKey,text,allowNewConversation);
+  },
   async startApprovedTeam(teamId:string){
     const result=await browser.runtime.sendMessage({type:'AGENTSYNC_START_APPROVED_TEAM',teamId}) as {started?:boolean;error?:string}|undefined;
     if(result?.error)throw new Error(result.error);
@@ -123,7 +152,15 @@ export const chatAdapter = {
       const current=await port.get(tab.id);
       if(current.pendingUrl||!current.url){await new Promise(resolve=>setTimeout(resolve,timings.pollIntervalMs));continue;}
       if(!matchesConversation(current,expected))throw new Error('Registered chat tab changed while preparing the bridge.');
-      try{return await browser.tabs.sendMessage(tab.id,{...message,timings});}
+      try{
+        const response=await browser.tabs.sendMessage(tab.id,{...message,timings}) as {submitted?:boolean;uncertain?:boolean;error?:string;conversationUrl?:string}|undefined;
+        if(response?.uncertain&&message.text){
+          const reconciled=await reconcileAfterReload(tab.id,expected,message.dedupeKey,message.text);
+          if(reconciled.confirmed)return {...response,submitted:true,duplicate:true,recovered:true,conversationUrl:reconciled.conversationUrl};
+          return {...response,error:`${response.error??'Submission could not be confirmed.'} After one reload: ${reconciled.reason}`};
+        }
+        return response;
+      }
       catch(error){
         lastError=error instanceof Error?error.message:String(error);
         try{await browser.scripting.executeScript({target:{tabId:tab.id},files:['agentsync-bridge.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);}catch{/* The tab may still be navigating; retry briefly. */}
@@ -145,9 +182,17 @@ export const chatAdapter = {
       if(current.url!=='https://chatgpt.com/'&&current.url!=='https://chatgpt.com')throw new Error('New ChatGPT tab navigated away before setup.');
       try{
         await browser.scripting.executeScript({target:{tabId:tab.id},files:['agentsync-bridge.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);
-        const result=await browser.tabs.sendMessage(tab.id,{type:'AGENTSYNC_CREATE_CHAT',text:prompt,dedupeKey,timings}) as {submitted?:boolean;conversationUrl?:string;error?:string}|undefined;
+        const result=await browser.tabs.sendMessage(tab.id,{type:'AGENTSYNC_CREATE_CHAT',text:prompt,dedupeKey,timings}) as {submitted?:boolean;uncertain?:boolean;conversationUrl?:string;error?:string}|undefined;
         if(result?.error){lastError=result.error;if(/composer is unavailable|not visibly idle/i.test(lastError)){await new Promise(resolve=>setTimeout(resolve,timings.pollIntervalMs));continue;}throw new Error(lastError);}
-        if(result?.submitted!==true||!result.conversationUrl)throw new Error('ChatGPT setup submission is uncertain; do not retry automatically.');
+        if(result?.uncertain&&result.error){
+          const recovered=await reconcileAfterReload(tab.id,'https://chatgpt.com/',dedupeKey,`${prompt}\n\nAgentSync delivery ID: ${dedupeKey}`,true);
+          if(!recovered.confirmed)throw new Error(`${result.error} After one reload: ${recovered.reason}`);
+          const recoveredUrl=conversationUrl(recovered.conversationUrl);
+          const recoveredTab=await browser.tabs.get(tab.id);
+          if(!matchesConversation(recoveredTab,recoveredUrl))throw new Error('The exact setup prompt was found after reload, but the conversation URL could not be confirmed. Inspect ChatGPT; no setup prompt was resent.');
+          return recoveredUrl;
+        }
+        if(result?.submitted!==true||!result.conversationUrl)throw new Error('ChatGPT setup submission is uncertain; no setup prompt was resent. Inspect the last user message before retrying.');
         const url=conversationUrl(result.conversationUrl);
         const latest=await browser.tabs.get(tab.id);
         if(!matchesConversation(latest,url))throw new Error('New conversation URL did not match the created tab.');
