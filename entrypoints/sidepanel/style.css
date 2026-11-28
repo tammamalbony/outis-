@@ -418,8 +418,13 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-test-effort input { grid-column: 1 / -1; width: 100%; accent-color: var(--orange); }
 .chat-test-effort-labels { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
 .chat-test-wizard { display: grid; gap: 9px; min-width: 0; }
-.chat-status-rail { position: fixed; z-index: 50; top: 50%; right: 5px; display: grid; gap: 4px; width: 34px; max-height: min(82vh, 560px); padding: 5px 4px; overflow-y: auto; transform: translateY(-50%); border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb,var(--surface) 94%,transparent); box-shadow: 0 6px 20px #0005; backdrop-filter: blur(8px); }
-.chat-status-rail-item { display: grid; min-height: 25px; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); color: var(--muted); font-size: 8px; font-weight: 850; line-height: 1; cursor: help; }
+.chat-status-rail { position: fixed; z-index: 50; top: 50%; right: 5px; display: grid; gap: 4px; width: 36px; max-height: min(82vh, 560px); padding: 5px 4px; overflow: visible; transform: translateY(-50%); border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb,var(--surface) 94%,transparent); box-shadow: 0 6px 20px #0005; backdrop-filter: blur(8px); }
+.chat-status-rail-item { position: relative; z-index: 1; display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); color: var(--muted); line-height: 1; cursor: help; transform-origin: right center; transition: transform .16s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease; }
+.chat-status-rail-item svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: width .16s ease, height .16s ease; }
+.chat-status-rail-item:hover, .chat-status-rail-item:focus-visible { z-index: 5; background: var(--surface); box-shadow: 0 3px 12px #0007; outline: none; transform: scale(1.48); }
+.chat-status-rail-item:hover svg, .chat-status-rail-item:focus-visible svg { width: 19px; height: 19px; }
+.chat-status-rail-item[data-icon="loading"][data-state="yes"] svg { animation: chat-status-spin 1.4s linear infinite; }
+@keyframes chat-status-spin { to { transform: rotate(360deg); } }
 .chat-status-rail-item[data-state="yes"] { border-color: color-mix(in srgb,var(--success) 45%,var(--line)); color: var(--success); }
 .chat-status-rail-item[data-state="no"] { border-color: color-mix(in srgb,var(--danger) 38%,var(--line)); color: var(--muted); }
 .chat-status-rail-item[data-state="info"] { border-color: color-mix(in srgb,var(--orange) 45%,var(--line)); color: var(--orange); }
