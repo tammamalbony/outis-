@@ -10,7 +10,7 @@
   let lastSnapshotKey = '';
   let lastAssistantKey = '';
   let assistantStableSince = 0;
-  const defaultTimings={pageSettleMs:5000,sessionReadyTimeoutMs:20000,sessionStableMs:3000,composerTextTimeoutMs:4000,sendControlTimeoutMs:5000,submissionTimeoutMs:10000,conversationLinkGraceMs:10000,conversationLinkStableMs:1500,conversationLinkTimeoutMs:30000,tabReadyTimeoutMs:30000,bridgeReadyTimeoutMs:15000,pollIntervalMs:500,assistantStableMs:1500,snapshotDebounceMs:700,chatSnapshotPollMs:5000,setupReplyTimeoutMs:120000,a0ResponseTimeoutMs:180000,githubRequestTimeoutMs:20000};
+  const defaultTimings={pageSettleMs:5000,sessionReadyTimeoutMs:20000,sessionStableMs:3000,composerTextTimeoutMs:4000,sendControlTimeoutMs:5000,submissionTimeoutMs:10000,conversationLinkGraceMs:5000,conversationLinkStableMs:1500,conversationLinkTimeoutMs:30000,tabReadyTimeoutMs:30000,bridgeReadyTimeoutMs:15000,pollIntervalMs:500,assistantStableMs:1500,snapshotDebounceMs:700,chatSnapshotPollMs:5000,setupReplyTimeoutMs:120000,a0ResponseTimeoutMs:180000,githubRequestTimeoutMs:20000};
   let timings={...defaultTimings};
   const deliveries = new Map();
   const delivered = new Set();
@@ -38,36 +38,40 @@
   const buttonLabel = button => `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.getAttribute('data-testid') || ''} ${button.innerText || ''} ${button.textContent || ''}`;
   const resolveTimings = value => Object.fromEntries(Object.keys(defaultTimings).map(key=>[key,key==='chatSnapshotPollMs'?5000:Number.isSafeInteger(value?.[key])&&value[key]>=0?value[key]:timings[key]]));
   const stopSquarePath='M4.5 5.75C4.5 5.05964 5.05964 4.5 5.75 4.5H14.25C14.9404 4.5 15.5 5.05964 15.5 5.75V14.25C15.5 14.9404 14.9404 15.5 14.25 15.5H5.75C5.05964 15.5 4.5 14.9404 4.5 14.25V5.75Z';
+  const sendArrowPath='M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z';
+  const enabledButton=button=>Boolean(button&&!button.disabled&&button.getAttribute('aria-disabled')!=='true'&&!button.parentElement?.closest?.('[aria-disabled="true"]'));
   const stopIcon = button => [...(button.querySelectorAll?.('svg path') || [])].some(path=>normalizeText(path.getAttribute('d'))===stopSquarePath);
-  const stopControl = () => visibleButtons().find(button => /stop generating|stop streaming|cancel response/i.test(buttonLabel(button)) || /stop-button/i.test(button.getAttribute('data-testid') || '') || stopIcon(button));
-  function startVoiceControl(){
+  const arrowIcon = button => [...(button.querySelectorAll?.('svg path') || [])].some(path=>normalizeText(path.getAttribute('d'))===sendArrowPath);
+  const stopControl = () => visibleButtons().find(button => enabledButton(button)&&(/stop generating|stop streaming|cancel response/i.test(buttonLabel(button)) || /stop-button/i.test(button.getAttribute('data-testid') || '') || stopIcon(button)));
+  function voiceButton(enabledOnly=true){
     for(const button of visibleButtons()){
       const ariaLabel=(button.getAttribute('aria-label') || '').trim();
       const voiceMarker=button.getAttribute('data-composer-voice-start') === 'true';
       // ChatGPT builds do not consistently expose the data marker or SVG use
       // reference. The accessible action label is the stable signal users see.
-      if(/^start voice(?: mode)?$/i.test(ariaLabel)||voiceMarker)return button;
+      if((!enabledOnly||enabledButton(button))&&(/^start voice(?: mode)?$/i.test(ariaLabel)||voiceMarker))return button;
     }
     for(const use of document.querySelectorAll('button svg use')){
       const href=use.getAttribute('href') || use.getAttributeNS('http://www.w3.org/1999/xlink','href') || use.href?.baseVal || '';
       const button=use.closest('button');
       // The visible composer voice action can have a localized or missing
       // accessible label. Its ChatGPT sprite symbol is a stable fallback.
-      if(button&&isVisible(button)&&href.includes('#codex-icon-voice-regular-20'))return button;
+      if(button&&isVisible(button)&&(!enabledOnly||enabledButton(button))&&href.includes('#codex-icon-voice-regular-20'))return button;
     }
     return null;
   }
+  const startVoiceControl=()=>voiceButton(true);
   function sendControl(input){
     const composerForm=input?.closest?.('form');
     const voice=startVoiceControl();
     return visibleButtons().find(button=>{
       if(button===voice)return false;
-      if(button.disabled||button.getAttribute('aria-hidden')==='true'||button.getAttribute('aria-disabled')==='true')return false;
+      if(!enabledButton(button)||button.getAttribute('aria-hidden')==='true')return false;
       const label=buttonLabel(button);
       if(/\bstart voice\b/i.test(label))return false;
       const namedSend=button.getAttribute('data-testid')==='send-button'||/\bsend(?:\s+(?:prompt|message))?\b/i.test(label);
       const composerSubmit=Boolean(composerForm&&button.type==='submit'&&composerForm.contains(button));
-      return namedSend||composerSubmit;
+      return namedSend||composerSubmit||arrowIcon(button);
     });
   }
   const wait = milliseconds => new Promise(resolve=>setTimeout(resolve,milliseconds));
@@ -86,6 +90,7 @@
     });
   }
   async function settleNewChatComposer(input,settings){
+    input=composer()||input;
     const staleDraft=normalizeText(composerText(input));
     if(staleDraft){
       setComposerText(input,'');
@@ -94,8 +99,22 @@
     // ChatGPT can retain an old draft across fresh-home tabs and hydrate its
     // composer controls asynchronously. Let the page settle before replacing it.
     await wait(settings.pageSettleMs);
+    input=await waitForComposerAction('empty',settings.sessionReadyTimeoutMs,settings);
+    if(!input)throw new Error('ChatGPT did not show an enabled voice button for the empty new-chat composer. No prompt was submitted.');
     if(normalizeText(composerText(input)))throw new Error('ChatGPT restored text in the composer while preparing a new chat. No prompt was submitted.');
-    if(!startVoiceControl())throw new Error(`ChatGPT voice control did not appear in the empty composer after the ${settings.pageSettleMs} ms page settle. No prompt was submitted.`);
+    return input;
+  }
+  async function waitForComposerAction(expected,timeoutMs,settings){
+    const deadline=Date.now()+timeoutMs;
+    while(Date.now()<deadline){
+      const input=composer();
+      const empty=!normalizeText(composerText(input));
+      const ready=isVisible(input)&&!input.disabled&&input.getAttribute('aria-disabled')!=='true'
+        &&(expected==='empty'?empty&&!stopControl()&&enabledButton(startVoiceControl()):Boolean(!empty&&enabledButton(sendControl(input))));
+      if(ready)return input;
+      await wait(settings.pollIntervalMs);
+    }
+    return null;
   }
   async function waitForSendControl(input,settings){
     const timeoutMs=settings.sendControlTimeoutMs;
@@ -144,6 +163,24 @@
     if(hasComposer&&!generating&&voiceControl&&!normalizeText(composerText(currentComposer))&&latestRole==='assistant'&&!responseStable){scheduleSettle(timings.assistantStableMs-(Date.now()-assistantStableSince));}
     const state = generating ? 'GENERATING' : idleCandidate ? 'IDLE' : 'UNKNOWN';
     return {conversationUrl: cleanUrl(), state, latestRole, latestMessageId, latestMessage, observedAt: new Date().toISOString()};
+  }
+
+  function readTestSnapshot(){
+    const input=composer();
+    const visible=isVisible(input);
+    const text=visible?normalizeText(composerText(input)):'';
+    const voice=voiceButton(false);
+    const stop=visibleButtons().find(button=>/stop generating|stop streaming|cancel response/i.test(buttonLabel(button))||/stop-button/i.test(button.getAttribute('data-testid')||'')||stopIcon(button));
+    const arrow=visibleButtons().find(button=>arrowIcon(button));
+    const pause=visibleButtons().find(button=>/\bpause(?: generation| response)?\b/i.test(buttonLabel(button)));
+    const conversation=/^\/c\/[A-Za-z0-9-]+\/?$/.test(location.pathname);
+    const pageLoaded=document.readyState==='complete';
+    let state='WAITING';
+    if(!pageLoaded)state='LOADING';
+    else if(text&&arrow&&enabledButton(arrow))state='PROMPT_READY';
+    else if(stop&&enabledButton(stop))state='WORKING';
+    else if(!text&&voice&&enabledButton(voice))state=conversation?'IDLE':'NEW';
+    return {href:location.href,hasConversationUrl:conversation,conversationUrl:conversation?cleanUrl():'',pageLoaded,composerVisible:visible,composerEmpty:!text,composerLength:text.length,voiceVisible:Boolean(voice),voiceEnabled:enabledButton(voice),arrowVisible:Boolean(arrow),arrowEnabled:enabledButton(arrow),stopVisible:Boolean(stop),stopEnabled:enabledButton(stop),pauseVisible:Boolean(pause),pauseEnabled:enabledButton(pause),userMessageCount:userMessages().length,state,observedAt:new Date().toISOString()};
   }
 
   function sendSnapshot(force=false,onComplete) {
@@ -201,8 +238,11 @@
       const profileState=profile?`${profile.getAttribute('aria-label')||''}|${profile.getAttribute('data-testid')||''}`:'';
       const registeredConversation=/^\/c\/[A-Za-z0-9-]+\/?$/.test(location.pathname)
         &&[...document.querySelectorAll('[data-message-author-role="assistant"],[data-dil-response]')].some(isVisible);
-      const sessionEvidence=profile?`profile:${profileState}`:registeredConversation?'registered-conversation-with-assistant-reply':'';
-      const ready=document.readyState==='complete'&&isVisible(currentComposer)&&!currentComposer.disabled&&currentComposer.getAttribute('aria-disabled')!=='true'&&Boolean(sessionEvidence);
+      const composerEmpty=!normalizeText(composerText(currentComposer));
+      const actionReady=composerEmpty?Boolean(enabledButton(startVoiceControl())&&!stopControl()):Boolean(enabledButton(sendControl(currentComposer)));
+      const readyAction=isVisible(currentComposer)&&!currentComposer.disabled&&currentComposer.getAttribute('aria-disabled')!=='true'&&actionReady;
+      const sessionEvidence=profile?`profile:${profileState}`:registeredConversation?'registered-conversation-with-assistant-reply':readyAction?'enabled-composer-action':'';
+      const ready=document.readyState==='complete'&&readyAction&&Boolean(sessionEvidence);
       if(ready&&sessionEvidence===priorSessionEvidence){
         if(!stableSince)stableSince=Date.now();
         if(Date.now()-stableSince>=settings.sessionStableMs)return currentComposer;
@@ -215,7 +255,7 @@
   async function waitForComposerText(element,text,timeoutMs,settings){
     const deadline=Date.now()+timeoutMs;
     while(Date.now()<deadline){
-      if(normalizeText(composerText(element))===normalizeText(text))return true;
+      if(normalizeText(composerText(composer()||element))===normalizeText(text))return true;
       await wait(settings.pollIntervalMs);
     }
     return false;
@@ -227,14 +267,15 @@
       if(accountChanged())throw new Error('ChatGPT reports the signed-in account changed. Submission is uncertain; AgentSync will not retry automatically.');
       if(visibleError())throw new Error('ChatGPT displayed an error while submitting. AgentSync will not retry automatically.');
       const currentUsers=userMessages();
-      if(currentUsers.length>beforeCount&&currentUsers.slice(beforeCount).some(node=>textOf(node).includes(prompt)))return true;
       const currentComposer=composer();
       const composerEmpty=!normalizeText(composerText(currentComposer));
       const conversationOpened=location.pathname.startsWith('/c/')&&location.href!==priorUrl;
-      if(Boolean(stopControl())||(composerEmpty&&conversationOpened))return true;
+      const posted=currentUsers.length>beforeCount&&currentUsers.slice(beforeCount).some(node=>textOf(node).includes(prompt));
+      if(composerEmpty&&(posted||Boolean(stopControl())||conversationOpened))return true;
       await wait(settings.pollIntervalMs);
     }
-    return userMessages().slice(beforeCount).some(node=>textOf(node).includes(prompt));
+    const currentComposer=composer();
+    return !normalizeText(composerText(currentComposer))&&userMessages().slice(beforeCount).some(node=>textOf(node).includes(prompt));
   }
 
   async function submitTextOnce(message) {
@@ -255,11 +296,14 @@
     if(existingDraft&&!exactAgentSyncDraft&&!freshHome)throw new Error('The ChatGPT composer contains a different unsent draft. Submit or remove it yourself before AgentSync continues.');
     if(exactAgentSyncDraft&&(stopControl()||visibleError()))throw new Error('ChatGPT is generating or showing an error. Wait for it to settle before resuming the saved AgentSync draft.');
     const priorUrl=location.href;
-    if(freshHome)await settleNewChatComposer(input,settings);
-    if(!exactAgentSyncDraft||freshHome)setComposerText(input,message.text);
-    if(!await waitForComposerText(input,message.text,settings.composerTextTimeoutMs,settings))throw new Error('AgentSync could not verify the exact prompt in the composer. Nothing was submitted.');
-    if(!await waitForSendControl(input,settings))throw new Error('ChatGPT send arrow did not appear for the non-empty composer. No prompt was submitted.');
-    const send=sendControl(input);
+    let activeInput=input;
+    if(freshHome)activeInput=await settleNewChatComposer(input,settings);
+    activeInput=composer()||activeInput;
+    if(!exactAgentSyncDraft||freshHome)setComposerText(activeInput,message.text);
+    if(!await waitForComposerText(activeInput,message.text,settings.composerTextTimeoutMs,settings))throw new Error('AgentSync could not verify the exact prompt in the composer. Nothing was submitted.');
+    if(!await waitForSendControl(activeInput,settings))throw new Error('ChatGPT send arrow did not appear for the non-empty composer. No prompt was submitted.');
+    activeInput=composer()||activeInput;
+    const send=sendControl(activeInput);
     if (!send) throw new Error('ChatGPT send arrow is unavailable.');
     send.click();
     if(await waitForSubmission(marker,before,priorUrl,settings)){queueMicrotask(sendSnapshot);return {submitted:true};}
@@ -321,6 +365,10 @@
     if(message?.type==='AGENTSYNC_BRIDGE_PING'){
       sendSnapshot(true,result=>sendResponse(result?.error?{ready:false,error:result.error}:{ready:true}));
       return true;
+    }
+    if(message?.type==='AGENTSYNC_TEST_SNAPSHOT'){
+      sendResponse(readTestSnapshot());
+      return false;
     }
     if(message?.type==='AGENTSYNC_CREATE_CHAT'){
       createChat(message).then(sendResponse,error=>sendResponse({error:error instanceof Error?error.message:'Chat setup failed.'}));

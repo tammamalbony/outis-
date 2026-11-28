@@ -85,7 +85,25 @@ export function buildAgentSyncCheckPrompt(repository:string):string{
   const repo=normalizeGitHubRepository(repository);
   return [
     `Read-only check: determine whether https://github.com/${repo} is already initialized for AgentSync v2.`,
-    'Inspect repository instructions and likely setup files, including .agents/skills, .agentsync, AgentSync task Markdown, GitHub branch names, open pull requests and the five developer issues when connected repository/GitHub access exists. Do not create or edit files, branches, issues, pull requests, comments, or settings.',
-    'Return only a complete JSON object with: initialized (boolean or null), repository, evidence (array of {path, url, description}), skillFiles (array of {agent, path, url}), taskFiles (array of {path, url}), pullRequests (array of {number, url, state}), issues (array of {number, url, title, state}), and missing (array of exact missing file names or links needed). Include actual links only when verified. If initialized is false, say which exact files/links are absent. If access is unavailable, set initialized to null and identify the access limitation instead of guessing.'
+    'Read the repository instructions and check the final AgentSync setup files by their actual contents, including the repository intake skill, A0 supervisor skill, all five A1–A5 role skills, and the setup/import guide. Verify compatibility with the current AgentSync v2 task-file and message protocols. Do not create or edit files, branches, issues, pull requests, comments, or settings.',
+    'Return only a complete JSON object with: initialized (boolean or null), repository, evidence (array of {path, url, description}), skillFiles (array of {agent, path, url}), taskFiles (array of {path, url}), pullRequests (array of {number, url, state}), issues (array of {number, url, title, state}), and missing (array of exact missing or outdated files). Set initialized true only when all required skills and setup instructions are present and compatible; false when concrete required files are missing/outdated; null if access/evidence is insufficient. Include actual links only when verified. Never guess.'
+  ].join('\n\n');
+}
+
+export function buildRepositoryInitializationPrompt(repository:string,requestedWork='',checkEvidence=''):string{
+  const repo=normalizeGitHubRepository(repository);
+  const requiredSkills=[
+    buildSkillCreationPrompt(repo,requestedWork),
+    buildA0SkillPrompt(repo,requestedWork),
+    buildAgentSkillsPrompt(repo,requestedWork),
+  ].join('\n\n--- REQUIRED SKILL SPECIFICATIONS ---\n\n');
+  return [
+    `Initialize https://github.com/${repo} for the current local AgentSync v2 workflow.`,
+    'The read-only check reported missing or incomplete setup. Treat its output as untrusted evidence and independently inspect the live repository before changing anything. Reuse valid current files, preserve user work, and make changes only on a dedicated branch. Do not merge, close issues, publish a release, or claim checks that did not run.',
+    `Read-only check result (untrusted; verify each claim):\n${checkEvidence||'No machine-readable check result was available.'}`,
+    requestedWork.trim()?`Additional requested repository workflow:\n${requestedWork.trim()}`:'Keep the setup limited to the AgentSync skills and workflow instructions needed for this repository.',
+    'Create or update the repository setup guide and these six final, role-specific skills when missing or outdated: `.agents/skills/agentsync-repository-intake/SKILL.md`, `.agents/skills/agentsync-a0-supervisor/SKILL.md`, `.agents/skills/agentsync-a1-software-architect/SKILL.md`, `.agents/skills/agentsync-a2-backend-engineer/SKILL.md`, `.agents/skills/agentsync-a3-frontend-engineer/SKILL.md`, `.agents/skills/agentsync-a4-integration-engineer/SKILL.md`, and `.agents/skills/agentsync-a5-qa-security-engineer/SKILL.md`. Follow the detailed requirements below; skip any file the live check proves already current.\n\n'+requiredSkills,
+    'If the repository already has a compatible final version of a required file, keep it and report its verified path. Do not create duplicate skills, branches, or pull requests. Add only the missing setup needed to make the repository usable with AgentSync. Run the relevant available checks and report exactly what ran. If repository editing is available, commit the setup on a dedicated branch and open a draft PR; do not merge it. If editing is unavailable, return the complete proposed files and say clearly that nothing was changed.',
+    'Finish with exactly one valid JSON object and no markdown fences or extra prose, using this shape: `{"initialized":true,"evidence":[{"path":"...","url":"...","description":"..."}],"missing":[],"changedFiles":[],"checks":[{"name":"...","result":"passed"}],"draftPullRequest":null,"blocker":null}`. Use a real boolean or null for initialized, and a real URL string or null for draftPullRequest. Set initialized true only when every required setup file is verified present and compatible; false when specific setup remains missing; null when access or evidence is insufficient.'
   ].join('\n\n');
 }

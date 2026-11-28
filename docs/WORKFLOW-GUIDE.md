@@ -40,15 +40,21 @@ flowchart TD
 
 ## Sidebar and navigation
 
-The side panel is narrow, so navigation uses icon-only tabs with hover/focus tooltips and accessible labels for screen readers. The active tab is visually distinct. Keep the current areas and add Timing Settings:
+The side panel opens to Quick guide, which keeps the main workflow and optional Local MCP message path visible. Navigation uses icon-only tabs with hover/focus tooltips and accessible labels for screen readers. The active tab is visually distinct.
 
 | Tab | Icon concept | Purpose |
 |---|---|---|
 | Workspace | grid/briefcase | Import tasks, manage batches, and run the guided workflow |
+| GitHub | repo | Create repository prompts, resume the setup wizard, and use feature-team GitHub actions |
+| ChatGPT test wizard | chat bubble | Open or watch a ChatGPT tab and inspect its live ready state, composer, voice/arrow/stop/pause controls, URL, and send sequence |
+| ChatGPT bridge | link | Configure the optional registered-chat bridge and local MCP connection |
 | History | clock/stack | Review saved chats, reports, executions, and events |
 | Permissions | access/diamond | Review and request optional ChatGPT, GitHub API, clipboard, and active-tab access |
-| Settings | gear | Configure repository prompts, view local error logs, and manage local data |
 | Timing Settings | clock sliders | Configure task timing and scheduling behavior |
+| Settings | gear | Configure repository prompts, view local error logs, and manage local data |
+| Quick guide | question mark | Follow the main workflow and understand the optional MCP bridge |
+
+The ChatGPT test wizard samples the watched page continuously. A new chat is the loaded `chatgpt.com` home URL with an empty composer and enabled voice control; an idle chat has the same ready composer on a `/c/...` URL. A non-empty composer with an enabled arrow is prompt-ready. An enabled stop control indicates generation. After manually sending a test prompt, the expected sequence is voice → arrow → stop → voice; the wizard reports a successful return to idle after it observes all four stages.
 
 Icons need descriptive tooltip text on hover and keyboard focus. Do not rely on color alone to indicate the active tab.
 

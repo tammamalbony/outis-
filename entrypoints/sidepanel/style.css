@@ -268,7 +268,7 @@ main[data-theme] .empty-chats span, main[data-theme] .monitor-footnote { color: 
   .status-card { grid-column: auto; }
 }
 
-.app-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 5px; margin: 0 0 14px; padding: 5px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb,var(--surface) 94%,transparent); backdrop-filter: blur(12px); }
+.app-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(8,minmax(0,1fr)); gap: 5px; margin: 0 0 14px; padding: 5px; border: 1px solid var(--line); border-radius: 13px; background: color-mix(in srgb,var(--surface) 94%,transparent); backdrop-filter: blur(12px); }
 main[data-theme] .app-tabs button { min-height: 40px; border-color: transparent; border-radius: 9px; background: transparent; color: var(--muted); }
 main[data-theme] .app-tabs button[aria-selected="true"] { border-color: color-mix(in srgb,var(--orange) 38%,var(--line)); background: color-mix(in srgb,var(--orange) 14%,var(--surface-raised)); color: var(--orange); }
 .tab-heading, .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 2px 12px; }
@@ -314,3 +314,74 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .wizard-actions span { display: block; margin-bottom: 2px; font-size: 15px; }
 .timings-future-note, .timing-future-note { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); font-size: 11px; }
 @media (max-width: 380px) { main { padding: 8px; } .wizard-actions a { font-size: 9px; } }
+
+.guide-page { display: grid; gap: 10px; }
+.guide-header { padding: 4px 2px 8px; }
+.guide-header h2 { margin: 0; font-size: 21px; }
+.guide-header > p:not(.eyebrow) { margin: 5px 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.guide-header .eyebrow { margin: 0 0 3px; }
+.guide-panel { margin: 0; }
+.guide-section-heading { display: grid; gap: 3px; margin-bottom: 10px; }
+.guide-section-heading h3, .guide-role h3 { margin: 0; font-size: 14px; }
+.guide-kicker { color: var(--orange); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.guide-flow { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.guide-step { position: relative; display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 9px; padding: 0 0 12px; }
+.guide-step:not(:last-child)::after { position: absolute; top: 25px; bottom: 0; left: 12px; width: 1px; background: var(--line); content: ''; }
+.guide-step:last-child { padding-bottom: 0; }
+.guide-step-number { z-index: 1; display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid color-mix(in srgb,var(--orange) 40%,var(--line)); border-radius: 50%; background: var(--surface-raised); color: var(--orange); font-size: 11px; font-weight: 800; }
+.guide-step h4 { margin: 2px 0 3px; font-size: 12px; }
+.guide-step p, .guide-role p, .guide-intro, .guide-route-caption, .guide-note, .guide-footnote { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.guide-pair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.guide-role { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 11px; }
+.guide-role-badge { flex: 0 0 auto; padding: 5px 6px; border: 1px solid var(--line); border-radius: 7px; color: var(--orange); font-size: 10px; font-weight: 800; }
+.guide-role p { margin-top: 3px; }
+.guide-route { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; margin: 10px 0 4px; }
+.guide-route span { padding: 6px 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); color: var(--text); font-size: 10px; font-weight: 700; text-align: center; }
+.guide-route i { color: var(--orange); font-size: 14px; font-style: normal; font-weight: 800; }
+.guide-route-return { margin-top: 10px; }
+.guide-note { margin-top: 10px; padding: 9px; border-left: 2px solid var(--orange); border-radius: 0 7px 7px 0; background: var(--surface-soft); }
+.guide-footnote { padding: 0 3px 8px; }
+@media (max-width: 380px) { .guide-pair { grid-template-columns: 1fr; } .guide-route { gap: 4px; } .guide-route span { padding: 5px; font-size: 9px; } }
+
+.repository-wizard { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.repository-wizard-heading h3 { margin: 0; font-size: 16px; }
+.repository-wizard-heading p:last-child { margin: 4px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.repo-wizard-steps { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.repo-wizard-step { padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.repo-wizard-step[data-complete="true"] { border-color: color-mix(in srgb,var(--success) 44%,var(--line)); }
+.repo-wizard-step-top { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 8px; align-items: start; }
+.repo-wizard-number { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--orange); font-size: 11px; font-weight: 800; }
+.repo-wizard-step h4 { margin: 2px 0 3px; font-size: 12px; }
+.repo-wizard-step-top p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.repo-wizard-step > label { display: grid; gap: 4px; margin-top: 8px; font-size: 11px; }
+.repo-wizard-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.repository-wizard .secondary-button { border-color: var(--line); background: var(--surface-soft); color: var(--text); }
+.repo-wizard-link, .repo-wizard-time { display: block; margin: 7px 0 0; color: var(--muted); font-size: 10px; }
+.repo-wizard-reply { margin-top: 8px; font-size: 11px; }
+.repo-wizard-reply summary { cursor: pointer; color: var(--orange); font-weight: 700; }
+.repo-wizard-reply pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.repo-wizard-reset-link { margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 10px; text-decoration: underline; }
+.repo-wizard-agent-list { display: grid; gap: 4px; margin-top: 8px; }
+.repo-wizard-agent-list > div { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 10px; }
+.chat-test-intro h2 { margin: 0; font-size: 19px; }
+.chat-test-intro > p:not(.eyebrow) { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.chat-test-state { display: flex; align-items: center; gap: 10px; }
+.chat-test-state h3 { margin: 0; font-size: 17px; }
+.chat-test-state .eyebrow { margin: 0 0 2px; }
+.chat-state-dot { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb,var(--muted) 14%,transparent); }
+.chat-state-dot.state-new, .chat-state-dot.state-idle { background: var(--success); box-shadow: 0 0 0 4px color-mix(in srgb,var(--success) 14%,transparent); }
+.chat-state-dot.state-working, .chat-state-dot.state-prompt_ready { background: var(--orange); box-shadow: 0 0 0 4px color-mix(in srgb,var(--orange) 14%,transparent); }
+.chat-test-facts { display: grid; gap: 0; margin: 10px 0; }
+.chat-test-facts > div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 11px; }
+.chat-test-facts dt { color: var(--muted); }
+.chat-test-facts dd { margin: 0; text-align: right; }
+.chat-test-facts dd a { display: block; color: var(--orange); }
+.chat-test-url { display: block; overflow-wrap: anywhere; color: var(--muted); }
+.chat-test-sequence { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.chat-test-sequence li { display: flex; gap: 9px; align-items: center; color: var(--muted); }
+.chat-test-sequence li > span { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border: 1px solid var(--line); border-radius: 50%; font-size: 11px; }
+.chat-test-sequence li[data-reached="true"] { color: var(--success); }
+.chat-test-sequence li[data-reached="true"] > span { border-color: var(--success); }
+.chat-test-sequence li strong, .chat-test-sequence li small { display: block; }
+.chat-test-sequence li strong { font-size: 11px; }
+.chat-test-sequence li small { margin-top: 2px; font-size: 10px; }
