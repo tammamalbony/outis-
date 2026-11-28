@@ -65,6 +65,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
   const testStopDetail=useRef('');
   const testCheckpoint=useRef(0);
   const testContext=useRef<TestRunContext|undefined>(undefined);
+  const latestProbe=useRef<Probe|undefined>(undefined);
+  const clearComposerOnNewChat=useRef(false);
+  const lastWatchedRoute=useRef('');
   const manualDemoKey=useRef<string|undefined>(undefined);
   const testStepMetrics=useRef<TestStepMetric[]>(testRunSteps.map(()=>({attempts:0,durationMs:0})));
   const testRetryEvents=useRef<TestRetryEvent[]>([]);
@@ -78,13 +81,22 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     }).catch(()=>{});
     return()=>{cancelled=true;};
   },[]);
+  useEffect(()=>{
+    if(tabId===undefined)return;
+    const handleTabActivated=(activeInfo:{tabId:number})=>{
+      if(activeInfo.tabId!==tabId)setBaseline(latestProbe.current?.userMessageCount);
+    };
+    browser.tabs.onActivated.addListener(handleTabActivated);
+    return()=>browser.tabs.onActivated.removeListener(handleTabActivated);
+  },[tabId]);
   async function watchTab(id:number){
-    setBusy(true);setError('');setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
+    clearComposerOnNewChat.current=false;setBusy(true);setError('');setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
+    latestProbe.current=undefined;
     try{
       const tab=await browser.tabs.get(id);
       const validated=validateChatGPTTabUrl(tab.pendingUrl||tab.url);
       if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted.');
-      setTabId(id);
+      lastWatchedRoute.current=validated.url;setTabId(id);
       setObservedTabUrl(tab.pendingUrl||tab.url||validated.url);setObservedTabUrlValid(true);setActiveTabLoading(tab.status!=='complete');
       setTabSelectionStatus(`Using validated ChatGPT ${validated.kind}: ${validated.url}`);
     }catch(e){const message=e instanceof Error?e.message:String(e);setTabSelectionStatus(`Active tab rejected: ${message}`);setError(message);}finally{setBusy(false);}
@@ -102,12 +114,12 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     }catch(e){const message=e instanceof Error?e.message:String(e);setError(message);setTabSelectionStatus(`URL rejected · ${message}`);}
   }
   async function openNew(){
-    setBusy(true);setError('');setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
+    setBusy(true);setError('');setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;latestProbe.current=undefined;clearComposerOnNewChat.current=false;
     try{
       if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted.');
       const tab=await browser.tabs.create({url:'https://chatgpt.com/',active:true});
       if(tab.id===undefined)throw new Error('Chrome did not return the new ChatGPT tab.');
-      setTabId(tab.id);setObservedTabUrl('https://chatgpt.com/');setObservedTabUrlValid(true);setActiveTabLoading(true);
+      clearComposerOnNewChat.current=true;lastWatchedRoute.current='https://chatgpt.com/';setTabId(tab.id);setObservedTabUrl('https://chatgpt.com/');setObservedTabUrlValid(true);setActiveTabLoading(true);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
   }
   async function waitForTestSnapshot(id:number,predicate:(value:Probe)=>boolean,timeoutMs:number,cancellable=false,onSnapshot?:(value:Probe)=>Promise<void>|void){
@@ -425,7 +437,8 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       try{
         const tab=await browser.tabs.get(tabId);
         const rawUrl=tab.pendingUrl||tab.url||'';setObservedTabUrl(rawUrl);setActiveTabLoading(tab.status!=='complete');
-        try{validateChatGPTTabUrl(rawUrl);setObservedTabUrlValid(true);}catch{setObservedTabUrlValid(false);setProbe(undefined);throw new Error(`The watched tab URL is not an approved ChatGPT page: ${rawUrl||'(no URL)'}`);}
+        let currentRoute='';
+        try{currentRoute=validateChatGPTTabUrl(rawUrl).url;setObservedTabUrlValid(true);}catch{setObservedTabUrlValid(false);setProbe(undefined);throw new Error(`The watched tab URL is not an approved ChatGPT page: ${rawUrl||'(no URL)'}`);}
         if(tab.status!=='complete')setProbe(undefined);
         if(tab.status==='complete'){
           await browser.scripting.executeScript({target:{tabId},files:['agentsync-bridge.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);
@@ -435,13 +448,29 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
             const mode=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_ENSURE_CHAT_MODE'}) as {confirmed?:boolean;error?:string}|undefined;
             if(mode?.error||mode?.confirmed!==true)throw new Error(mode?.error||'ChatGPT did not confirm Chat mode.');
           }
-          const value=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
+          let value=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
+          if(value&&clearComposerOnNewChat.current){
+            if(value.hasConversationUrl)clearComposerOnNewChat.current=false;
+            else if(value.composerVisible){
+              if(!value.composerEmpty){
+                const cleared=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_CLEAR_COMPOSER'}) as {confirmed?:boolean;error?:string}|undefined;
+                if(cleared?.error||cleared?.confirmed!==true)throw new Error(cleared?.error||'Could not clear the new chat composer.');
+                value=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
+              }
+              clearComposerOnNewChat.current=false;
+            }
+          }
           if(value&&!stopped){
             setActiveTabLoading(!value.pageLoaded);
+            const previousRoute=lastWatchedRoute.current;
+            const changedToNewChat=Boolean(previousRoute&&previousRoute!==currentRoute&&currentRoute==='https://chatgpt.com/');
+            const changedConversation=Boolean(previousRoute&&previousRoute!==currentRoute&&/^https:\/\/chatgpt\.com\/c\//.test(previousRoute)&&/^https:\/\/chatgpt\.com\/c\//.test(currentRoute));
+            if(changedToNewChat||changedConversation){setBaseline(value.userMessageCount);testSubmittedUntil.current=0;if(changedToNewChat)clearComposerOnNewChat.current=true;}
+            lastWatchedRoute.current=currentRoute;
             if(previousTestComposerText.current&&value.composerEmpty&&value.userMessageCount>previousTestUserCount.current)testSubmittedUntil.current=Date.now()+2500;
             previousTestComposerText.current=!value.composerEmpty;previousTestUserCount.current=value.userMessageCount;
             const current=testSubmittedUntil.current>Date.now()?{...value,state:'SUBMITTED' as const}:value;
-            setProbe(current);if(!effortTouched.current)setEffortDraft(value.effort==='LOW'?0:value.effort==='HIGH'?2:1);setBaseline(old=>old??value.userMessageCount);if(pollError.current){pollError.current=false;setError('');}
+            latestProbe.current=current;setProbe(current);if(!effortTouched.current)setEffortDraft(value.effort==='LOW'?0:value.effort==='HIGH'?2:1);setBaseline(old=>old??value.userMessageCount);if(pollError.current){pollError.current=false;setError('');}
             const next=stages[nextStage.current];
             const reached=next==='voice'||next==='voice-again'?(value.state==='NEW'||value.state==='IDLE'):next==='arrow'?value.state==='PROMPT_READY':next==='submitted'?current.state==='SUBMITTED':value.state==='WORKING';
             if(reached){setSequence(old=>[...old,{stage:next,at:new Date().toLocaleTimeString()}]);nextStage.current+=1;}
