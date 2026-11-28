@@ -450,6 +450,11 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-test-tab-validation { margin: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 10px; overflow-wrap: anywhere; }
 .chat-test-tab-validation.is-valid { border-color: color-mix(in srgb,var(--success) 48%,var(--line)); color: var(--success); }
 .chat-test-tab-validation.is-invalid { border-color: color-mix(in srgb,var(--danger) 45%,var(--line)); color: var(--danger); }
+.chat-test-subtabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.chat-test-subtabs button { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 8px 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; }
+.chat-test-subtabs button[aria-selected="true"] { border-color: color-mix(in srgb,var(--success) 48%,var(--line)); background: color-mix(in srgb,var(--success) 13%,var(--surface-soft)); color: var(--success); }
+.chat-test-subtabs button span { color: inherit; font-size: 9px; opacity: .85; }
+.chat-test-subtabs button:hover:not([aria-selected="true"]) { background: var(--surface-soft); color: var(--text); }
 .chat-test-progress { min-width: 0; }
 .chat-test-progress-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-test-progress-heading h3 { margin: 0; font-size: 14px; }

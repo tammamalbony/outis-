@@ -58,7 +58,7 @@ const statusIconPaths:Record<string,string>={
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'}))),[testClock,setTestClock]=useState(()=>Date.now());
-  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false);
+  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('live');
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -590,19 +590,24 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       return clickable?<button key={item.label} type="button" className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={title} aria-label={title} disabled={disabled} onClick={()=>void activateStatusRailIcon(item.icon)}>{content}</button>:<span key={item.label} className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={title} aria-label={title} role="img" tabIndex={0}>{content}</span>;
     })}{railActionStatus&&<span className="chat-status-rail-action" role="status">{railActionStatus}</span>}</aside>}
     <header className="chat-test-header">
-      <div><p className="eyebrow">CHATGPT</p><h2>ChatGPT test</h2><p>Run the test one step at a time. Review each result before continuing.</p></div>
+      <div><p className="eyebrow">CHATGPT</p><h2>ChatGPT</h2><p>Live state, control checks, and the detailed test are organized below.</p></div>
       <div className="chat-test-toolbar">
         <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void openNew()}>{busy?'Opening…':'Open new chat'}</button>
         <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void useActiveTab()}>Use active tab</button>
       </div>
       {tabSelectionStatus&&<p className={`chat-test-tab-validation ${tabSelectionStatus.startsWith('URL accepted')||tabSelectionStatus.startsWith('Using validated')?'is-valid':'is-invalid'}`} role="status">{tabSelectionStatus}</p>}
     </header>
-    <section className="panel chat-test-detection" aria-live="polite">
+    <nav className="chat-test-subtabs" role="tablist" aria-label="ChatGPT tools">
+      <button type="button" role="tab" id="chat-subtab-live" aria-selected={chatSubtab==='live'} aria-controls="chat-panel-live" onClick={()=>setChatSubtab('live')}>Live status</button>
+      <button type="button" role="tab" id="chat-subtab-detector" aria-selected={chatSubtab==='detector'} aria-controls="chat-panel-detector" onClick={()=>setChatSubtab('detector')}>Control detector <span>{detectorResults.length}/{detectorSteps.length}</span></button>
+      <button type="button" role="tab" id="chat-subtab-test" aria-selected={chatSubtab==='test'} aria-controls="chat-panel-test" onClick={()=>setChatSubtab('test')}>Detailed test <span>{testRunPhase==='IDLE'?'':testRunPhase==='PASSED'?'✓':`${Math.min(testCheckpoint.current+1,testRunSteps.length)}/${testRunSteps.length}`}</span></button>
+    </nav>
+    {chatSubtab==='detector'&&<section id="chat-panel-detector" className="panel chat-test-detection" role="tabpanel" aria-labelledby="chat-subtab-detector" aria-live="polite">
       <div className="chat-test-progress-heading"><div><p className="eyebrow">READ-ONLY CHECKS</p><h3>Control detector walkthrough</h3><p>Each click runs one check on the watched tab. It only reads the page; it does not type, switch settings, or submit.</p></div><div className="chat-test-primary-actions"><button type="button" disabled={detectorBusy||busy||tabId===undefined||detectorResults.length>=detectorSteps.length} onClick={()=>void runNextDetectorCheck()}>{detectorBusy?'Checking…':detectorResults.at(-1)?.status==='error'?`Retry check ${detectorResults.length}`:detectorResults.length===0?'Run check 1':detectorResults.length>=detectorSteps.length?'Checks complete':`Run check ${detectorResults.length+1}`}</button>{detectorResults.length>0&&<button type="button" className="secondary-button" disabled={detectorBusy} onClick={()=>setDetectorResults([])}>Reset checks</button>}</div></div>
       {!tabId&&<p className="chat-test-run-message">Select a valid ChatGPT tab with “Use active tab” first.</p>}
       <ol className="chat-test-sequence">{detectorSteps.map((step,index)=>{const result=detectorResults[index];const retrying=detectorBusy&&detectorResults.length===index+1&&detectorResults.at(-1)?.status==='error';return <li key={step} data-reached={result?.status==='observed'} data-failed={result?.status==='error'} data-active={retrying}><span>{result?.status==='observed'?'✓':result?.status==='error'?'!':index+1}</span><div><strong>{step}</strong><small>{result?`${result.attempts>1?`Attempt ${result.attempts} · `:''}${result.at} · ${result.detail}`:'Not checked yet'}</small></div></li>;})}</ol>
-    </section>
-    <section className="panel chat-test-progress" aria-live="polite">
+    </section>}
+    {chatSubtab==='test'&&<section id="chat-panel-test" className="panel chat-test-progress" role="tabpanel" aria-labelledby="chat-subtab-test" aria-live="polite">
       <div className="chat-test-progress-heading"><div><p className="eyebrow">DETAILED END-TO-END TEST</p><h3>Step-by-step automated test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step and validates its result.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'} · Total elapsed: {formatTestTime(runElapsedMs)}</p></div>
         <div className="chat-test-primary-actions">
           {testRunPhase==='RUNNING'?<button type="button" className="danger-button" onClick={()=>void stopOneClickTest()}>Stop</button>:<>
@@ -614,9 +619,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       {testRunMessage&&<p className={`chat-test-run-message ${testRunPhase==='FAILED'||testRunPhase==='STOPPED'?'error':testRunPhase==='PASSED'?'notice':''}`} role="status">{testRunMessage}</p>}
       <ol className="chat-test-sequence">{testRunSteps.map((step,index)=>{const result=testRunResults[index]??{status:'waiting' as const,detail:'Not started'};const metric=testStepMetrics.current[index];const elapsed=metric.durationMs+(metric.startedAt?testClock-metric.startedAt:0);const attemptElapsed=metric.startedAt?testClock-metric.startedAt:elapsed;const retriesLeft=Math.max(0,testStepRetryLimits[index]-Math.max(0,metric.attempts-1));const waitWindow=testStepWaitWindowsMs[index];const waitLeft=waitWindow===undefined?undefined:Math.max(0,waitWindow-attemptElapsed);const nextStep=testRunPhase==='PAUSED'&&index===testCheckpoint.current;const safety=index===6?' Delivery recovery only; a retry will never click Send again.':index===8?' If deletion is uncertain, inspect the test chat before retrying.':'';return <li key={step} data-reached={result.status==='passed'} data-active={result.status==='running'||nextStep} data-failed={result.status==='failed'||result.status==='stopped'}><span>{result.status==='passed'?'✓':result.status==='failed'?'!':result.status==='stopped'?'Ⅱ':result.status==='running'?'…':index+1}</span><div><strong>{step}</strong><small><b>Confirm:</b> {testStepValidations[index]}</small><small>{nextStep?'Up next · ':''}{result.detail}</small><small><b>Time:</b> {formatTestTime(elapsed)} elapsed{waitWindow!==undefined?` · wait window up to ${Math.ceil(waitWindow/1000)}s`:''}{result.status==='running'&&waitLeft!==undefined?` · ${waitLeft>0?`${Math.ceil(waitLeft/1000)}s remaining`:'wait window elapsed; checking result'}`:''} · <b>Retries left:</b> {retriesLeft}{metric.attempts?` · attempts: ${metric.attempts}`:''}{safety}</small></div></li>;})}</ol>
       {testCheckpoint.current>0&&testRunPhase!=='RUNNING'&&<button type="button" className="secondary-button" onClick={()=>void copyTestReport()}>Copy test report</button>}
-    </section>
+    </section>}
     {error&&<p className="error" role="alert">{error}</p>}
-    {!probe?<section className="panel chat-test-waiting"><strong>Waiting for ChatGPT</strong><p>Open a new chat or watch the active ChatGPT tab to begin monitoring.</p></section>:<>
+    {chatSubtab==='live'&&<div id="chat-panel-live" role="tabpanel" aria-labelledby="chat-subtab-live">{!probe?<section className="panel chat-test-waiting"><strong>Waiting for ChatGPT</strong><p>Open a new chat or watch the active ChatGPT tab to begin monitoring.</p></section>:<>
       <section className="panel chat-test-current">
         <div className="chat-test-current-heading"><span className={`chat-state-dot state-${probe.state.toLowerCase()}`}/><div><p className="eyebrow">CURRENT CHAT</p><h3>{savedAgent?.chatName??(savedAgent?`A${savedAgent.number} · ${savedAgent.role}`:probe.hasConversationUrl?'Unregistered conversation':'New chat')}</h3><small>{probe.state.replace('_',' ')} · {probe.hasConversationUrl?'conversation URL detected':'new-chat URL'}</small></div></div>
         <p className="chat-test-state-explanation">{explanations[probe.state]}</p>
@@ -636,6 +641,6 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         <section className="chat-test-detail-block"><h4>Composer text</h4><pre className="chat-test-content">{probe.composerText||'(empty)'}{probe.composerTextTruncated?'\n… text clipped at 5,000 characters':''}</pre></section>
         <section className="chat-test-detail-block"><h4>Observed flow</h4><ol className="chat-test-sequence">{stages.map((stage,index)=>{const reached=sequence[index]?.stage===stage;const help=stage==='voice'||stage==='voice-again'?'Empty composer and enabled voice control':stage==='arrow'?'Typed prompt and enabled arrow':stage==='submitted'?'Composer cleared and user message appeared':'Generation started and stop control appeared';return <li key={`${stage}-${index}`} data-reached={reached}><span>{reached?'✓':index+1}</span><div><strong>{names[stage]}</strong><small>{reached?sequence[index].at:help}</small></div></li>;})}</ol><button type="button" className="secondary-button" disabled={!tabId||controlBusy} onClick={resetSequence}>Reset observed flow</button></section>
       </details>
-    </>}
+    </>}</div>}
   </section>;
 }
