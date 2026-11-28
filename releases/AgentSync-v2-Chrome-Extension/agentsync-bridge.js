@@ -306,7 +306,8 @@
     else if(text&&arrow&&enabledButton(arrow))state='PROMPT_READY';
     else if(stop&&enabledButton(stop))state='WORKING';
     else if(!text&&voice&&enabledButton(voice))state=conversation?'IDLE':'NEW';
-    return {href:location.href,hasConversationUrl:conversation,conversationUrl:conversation?cleanUrl():'',pageLoaded,composerVisible:visible,composerText:visible?composerText(input).slice(0,5000):'',composerTextTruncated:visible&&composerText(input).length>5000,composerEmpty:!text,composerLength:text.length,composerMode,effort:effortLevel(),voiceVisible:Boolean(voice),voiceEnabled:enabledButton(voice),arrowVisible:Boolean(arrow),arrowEnabled:enabledButton(arrow),stopVisible:Boolean(stop),stopEnabled:enabledButton(stop),pauseVisible:Boolean(pause),pauseEnabled:enabledButton(pause),userMessageCount:userMessages().length,latestReplyFirstLine:replyFirstLine.slice(0,500),latestReplyCopyStatus,state,observedAt:new Date().toISOString()};
+    const latestUserMessage=fullTextOf(userMessages().at(-1)).slice(0,5000);
+    return {href:location.href,hasConversationUrl:conversation,conversationUrl:conversation?cleanUrl():'',pageLoaded,composerVisible:visible,composerText:visible?composerText(input).slice(0,5000):'',composerTextTruncated:visible&&composerText(input).length>5000,composerEmpty:!text,composerLength:text.length,composerMode,effort:effortLevel(),voiceVisible:Boolean(voice),voiceEnabled:enabledButton(voice),arrowVisible:Boolean(arrow),arrowEnabled:enabledButton(arrow),stopVisible:Boolean(stop),stopEnabled:enabledButton(stop),pauseVisible:Boolean(pause),pauseEnabled:enabledButton(pause),userMessageCount:userMessages().length,latestUserMessage,latestReplyFirstLine:replyFirstLine.slice(0,500),latestReplyCopyStatus,state,observedAt:new Date().toISOString()};
   }
 
   document.addEventListener('click',event=>{
