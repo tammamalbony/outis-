@@ -300,6 +300,9 @@ main[data-theme] .secondary-button { border-color: var(--line); background: var(
 .setting-row small { color: var(--muted); font-size: 11px; }
 .setting-status { display: inline-flex; align-items: center; width: max-content; padding: 4px 8px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font-size: 10px; font-weight: 750; white-space: nowrap; }
 .setting-status.is-enabled { border-color: color-mix(in srgb,var(--success) 40%,var(--line)); background: color-mix(in srgb,var(--success) 13%,var(--surface)); color: var(--success); }
+.setting-toggle { display: grid; place-items: center; }
+.setting-toggle input[type="checkbox"] { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--success); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .error-log-entry summary { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; cursor: pointer; }
 .error-log-entry summary strong { color: var(--danger); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .error-log-entry summary small { flex: 0 0 auto; color: var(--muted); font-size: 10px; }

@@ -418,8 +418,9 @@ async function handleContinueA0Workflow(message:unknown,sender:BridgeSender){
 
 export default defineBackground(() => {
   void browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
-  void chatAdapter.ensurePageStatusRail().catch(console.error);
-  browser.permissions.onAdded.addListener(()=>{void chatAdapter.ensurePageStatusRail().catch(console.error);});
+  void chatAdapter.syncPageStatusRail().catch(console.error);
+  browser.permissions.onAdded.addListener(()=>{void chatAdapter.syncPageStatusRail().catch(console.error);});
+  browser.permissions.onRemoved.addListener(()=>{void chatAdapter.syncPageStatusRail().catch(console.error);});
   browser.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(!message||typeof message!=='object')return false;
     const type=(message as {type?:string}).type;

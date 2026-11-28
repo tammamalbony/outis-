@@ -75,6 +75,11 @@
     }
   }
   let timer;const schedule=()=>{clearTimeout(timer);timer=setTimeout(paint,120);};
-  new MutationObserver(schedule).observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-pressed','aria-valuenow','disabled','data-testid']});
-  window.addEventListener('popstate',schedule);window.addEventListener('hashchange',schedule);setInterval(paint,1200);paint();
+  const observer=new MutationObserver(schedule);observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-pressed','aria-valuenow','disabled','data-testid']});
+  window.addEventListener('popstate',schedule);window.addEventListener('hashchange',schedule);const refreshInterval=setInterval(paint,1200);paint();
+  const onMessage=(message,_sender,sendResponse)=>{
+    if(message?.type!=='AGENTSYNC_PAGE_STATUS_DISABLE')return false;
+    observer.disconnect();clearInterval(refreshInterval);clearTimeout(timer);window.removeEventListener('popstate',schedule);window.removeEventListener('hashchange',schedule);chrome.runtime.onMessage.removeListener(onMessage);root.remove();globalThis.__agentsyncPageStatusInstalled=false;sendResponse({disabled:true});return false;
+  };
+  chrome.runtime.onMessage.addListener(onMessage);
 })();
