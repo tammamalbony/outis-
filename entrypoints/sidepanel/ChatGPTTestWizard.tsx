@@ -41,9 +41,12 @@ const statusIconPaths:Record<string,string>={
   ready:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM8 12l2.5 2.5L16 9',
   composer:'M4 5h16v14H4zM8 9h8M8 13h8M8 17h4',
   mode:'M4 7h16M4 12h16M4 17h16M8 5v4M15 10v4M10 15v4',
-  'mode-chat':'M4 7h16M4 12h16M4 17h16M8 5v4M15 10v4M10 15v4',
-  'mode-work':'M4 7h16M4 12h16M4 17h16M16 5v4M9 10v4M14 15v4',
-  effort:'M4 19a9 9 0 1 1 16 0M12 13l4-4M12 19h.01',
+  'mode-chat':'M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5ZM8 12h.01M12 12h.01M16 12h.01',
+  'mode-work':'M3 8h18v12H3zM8 8V5h8v3M3 12h18M10 12v2h4v-2',
+  'effort-low':'M4 19h16M7 19v-5',
+  'effort-medium':'M4 19h16M7 19v-5M12 19V9',
+  'effort-high':'M4 19h16M7 19v-5M12 19V9M17 19V4',
+  'effort-unknown':'M12 17h.01M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-1 .9-1.7 1.3-1.7 2.7M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   button:'M5 3v18l5-5 4 6 3-2-4-6h7L5 3Z',
   'user-message':'M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5ZM12 16V8M9 11l3-3 3 3',
   'assistant-message':'M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5ZM9 12h.01M12 12h.01M15 12h.01'
@@ -433,7 +436,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     {icon:'ready',label:'Page ready',state:!probe?'unknown':probe.pageLoaded&&probe.composerVisible?'yes':'no',detail:!probe?'Waiting for the page snapshot.':probe.pageLoaded&&probe.composerVisible?'Page loaded and composer detected.':`Page loaded: ${probe.pageLoaded?'yes':'no'} · composer: ${probe.composerVisible?'visible':'not visible'}`},
     {icon:'composer',label:'Composer',state:!probe?'unknown':probe.composerVisible?'yes':'no',detail:!probe?'Waiting for a page snapshot.':probe.composerVisible?probe.composerEmpty?'Visible · empty':`Visible · ${probe.composerLength} characters`:'Not visible'},
     {icon:probe?.composerMode==='CHAT'?'mode-chat':probe?.composerMode==='WORK'?'mode-work':'mode',label:'Composer mode',state:!probe||probe.composerMode==='UNKNOWN'?'unknown':'info',detail:probe?.composerMode==='CHAT'?'Chat mode':probe?.composerMode==='WORK'?'Work mode':'Mode not detected'},
-    {icon:'effort',label:'Effort',state:!probe||probe.effort==='UNKNOWN'?'unknown':'info',detail:probe&&probe.effort!=='UNKNOWN'?`${probe.effort[0]}${probe.effort.slice(1).toLowerCase()} effort`:'Effort not detected'},
+    {icon:probe?.effort==='LOW'?'effort-low':probe?.effort==='MEDIUM'?'effort-medium':probe?.effort==='HIGH'?'effort-high':'effort-unknown',label:'Effort',state:!probe||probe.effort==='UNKNOWN'?'unknown':'info',detail:probe&&probe.effort!=='UNKNOWN'?`${probe.effort[0]}${probe.effort.slice(1).toLowerCase()} effort`:'Effort not detected'},
     {icon:'button',label:'Action button',state:primaryButtonEnabled===undefined?'unknown':primaryButtonEnabled?'yes':'no',detail:primaryButtonEnabled===undefined?'No action button state is available.':`${probe?.arrowVisible?'Arrow':probe?.stopVisible?'Stop':probe?.voiceVisible?'Voice':'No action'} · ${primaryButtonEnabled?'enabled':'disabled'}`},
     {icon:'user-message',label:'User message submitted',state:!probe||baseline===undefined?'unknown':submitted?'yes':'no',detail:submitted?`Latest detected user message:\n${probe?.latestUserMessage||'(message text not detected)'}`:'No newly submitted user message detected since monitoring began.'},
     {icon:'assistant-message',label:'Assistant response detected',state:!probe?'unknown':probe.latestReplyFirstLine?'yes':'no',detail:probe?.latestReplyFirstLine?`Latest response, first line:\n${probe.latestReplyFirstLine}`:'No assistant response detected yet.'}
@@ -455,7 +458,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
   return <section className="chat-test-wizard" role="tabpanel" id="panel-chatgpt" aria-labelledby="tab-chatgpt">
-    {statusUrl&&<aside className="chat-status-rail" aria-label="Live active tab status">{statusItems.map(item=><span key={item.label} className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={`${item.label}: ${item.detail}`} aria-label={`${item.label}: ${item.detail}`} role="img" tabIndex={0}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={statusIconPaths[item.icon]}/></svg></span>)}</aside>}
+    {statusUrl&&<aside className="chat-status-rail" aria-label="Live active tab status">{statusItems.map(item=><span key={item.label} className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={`${item.label}: ${item.detail}`} aria-label={`${item.label}: ${item.detail}`} role="img" tabIndex={0}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={statusIconPaths[item.icon]}/></svg><span className="chat-status-rail-label">{item.label}</span></span>)}</aside>}
     <header className="chat-test-header">
       <div><p className="eyebrow">CHATGPT</p><h2>ChatGPT test</h2><p>Run the test one step at a time. Review each result before continuing.</p></div>
       <div className="chat-test-toolbar">
