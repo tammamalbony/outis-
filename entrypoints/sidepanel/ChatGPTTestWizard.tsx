@@ -10,9 +10,11 @@ type TestRunResult={status:'waiting'|'running'|'passed'|'stopped'|'failed';detai
 type TestStepMetric={attempts:number;startedAt?:number;durationMs:number};
 type TestRetryEvent={step:string;at:string;detail:string};
 type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCount?:number};
+type DetectorResult={name:string;status:'observed'|'error';detail:string;at:string;attempts:number};
 const stages:Milestone[]=['voice','arrow','submitted','stop','voice-again'];
 const names:Record<Milestone,string>={voice:'Voice ready',arrow:'Arrow ready',submitted:'Prompt submitted',stop:'Generating', 'voice-again':'Voice returned'};
 const testRunSteps=['Open a fresh test chat','Clear any old draft','Confirm Chat mode','Set High effort','Wait for voice ready','Prepare demo prompt','Submit the prompt','Receive the expected reply','Delete the test chat'];
+const detectorSteps=['Validate ChatGPT URL','Check page loaded','Detect composer','Read composer text','Check composer empty','Detect voice button','Detect send arrow','Detect stop button','Detect Chat or Work mode','Detect effort level','Check primary action'];
 function validateChatGPTTabUrl(rawUrl?:string){
   if(!rawUrl)throw new Error('The active tab has no URL yet. Wait for it to finish loading, then try again.');
   let url:URL;try{url=new URL(rawUrl);}catch{throw new Error('The active tab URL is not valid.');}
@@ -53,7 +55,7 @@ const statusIconPaths:Record<string,string>={
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));
-  const [railActionStatus,setRailActionStatus]=useState('');
+  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false);
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -90,7 +92,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     return()=>browser.tabs.onActivated.removeListener(handleTabActivated);
   },[tabId]);
   async function watchTab(id:number){
-    clearComposerOnNewChat.current=false;setBusy(true);setError('');setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
+    clearComposerOnNewChat.current=false;setBusy(true);setError('');setDetectorResults([]);setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
     latestProbe.current=undefined;
     try{
       const tab=await browser.tabs.get(id);
@@ -113,8 +115,41 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       await watchTab(tab.id);
     }catch(e){const message=e instanceof Error?e.message:String(e);setError(message);setTabSelectionStatus(`URL rejected · ${message}`);}
   }
+  async function runNextDetectorCheck(){
+    if(tabId===undefined){setError('Choose a ChatGPT tab with “Use active tab” before running detector checks.');return;}
+    const last=detectorResults.at(-1),retry=last?.status==='error'&&detectorResults.length>0,index=retry?detectorResults.length-1:detectorResults.length;
+    if(index>=detectorSteps.length)return;
+    setDetectorBusy(true);setError('');
+    const attempts=(retry?last?.attempts??1:0)+1;
+    let result:DetectorResult;
+    try{
+      const tab=await browser.tabs.get(tabId);
+      if(index===0){const validated=validateChatGPTTabUrl(tab.pendingUrl||tab.url);result={name:detectorSteps[index],status:'observed',detail:`Accepted ${validated.kind} URL: ${validated.url}`,at:new Date().toLocaleTimeString(),attempts};}
+      else if(index===1){const value=tab.status==='complete'?await chatAdapter.readStatusSnapshot(tabId):undefined;if(value)setProbe(value);result={name:detectorSteps[index],status:'observed',detail:`Chrome tab: ${tab.status??'unknown'} · ChatGPT document ready: ${value?value.pageLoaded?'yes':'no':'not checked while tab is loading'}`,at:new Date().toLocaleTimeString(),attempts};}
+      else{
+        const value=await chatAdapter.readStatusSnapshot(tabId);
+        const yesNo=(value:boolean)=>value?'yes':'no';
+        let detail='';
+        switch(index){
+          case 2: detail=`Composer visible: ${yesNo(value.composerVisible)}`;break;
+          case 3: detail=!value.composerVisible?'Composer text unavailable because the composer is not visible.':value.composerEmpty?'Composer text: (empty)':`Composer text detected (${value.composerLength} characters): ${value.composerText.slice(0,180)}${value.composerText.length>180?'…':''}${value.composerTextTruncated?' [snapshot text clipped]':''}`;break;
+          case 4: detail=`Composer empty: ${yesNo(value.composerEmpty)} · detected length: ${value.composerLength}`;break;
+          case 5: detail=`Voice button visible: ${yesNo(value.voiceVisible)} · enabled: ${yesNo(value.voiceEnabled)}`;break;
+          case 6: detail=`Send arrow visible: ${yesNo(value.arrowVisible)} · enabled: ${yesNo(value.arrowEnabled)}`;break;
+          case 7: detail=`Stop button visible: ${yesNo(value.stopVisible)} · enabled: ${yesNo(value.stopEnabled)}`;break;
+          case 8: detail=`Detected mode: ${value.composerMode}`;break;
+          case 9: detail=`Detected effort: ${value.effort}`;break;
+          default:{const action=value.arrowVisible?'Send arrow':value.stopVisible?'Stop button':value.voiceVisible?'Voice button':'None';const enabled=value.arrowVisible?value.arrowEnabled:value.stopVisible?value.stopEnabled:value.voiceVisible?value.voiceEnabled:false;detail=`Primary action: ${action} · enabled: ${yesNo(enabled)}`;break;}
+        }
+        result={name:detectorSteps[index],status:'observed',detail,at:new Date().toLocaleTimeString(),attempts};
+        setProbe(value);
+      }
+    }catch(error){result={name:detectorSteps[index],status:'error',detail:error instanceof Error?error.message:String(error),at:new Date().toLocaleTimeString(),attempts};}
+    setDetectorResults(previous=>retry?previous.map((item,i)=>i===index?result:item):[...previous,result]);
+    setDetectorBusy(false);
+  }
   async function openNew(){
-    setBusy(true);setError('');setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;latestProbe.current=undefined;clearComposerOnNewChat.current=false;
+    setBusy(true);setError('');setDetectorResults([]);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;latestProbe.current=undefined;clearComposerOnNewChat.current=false;
     try{
       if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted.');
       const tab=await chatAdapter.openNew();
@@ -547,6 +582,11 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       </div>
       {tabSelectionStatus&&<p className={`chat-test-tab-validation ${tabSelectionStatus.startsWith('URL accepted')||tabSelectionStatus.startsWith('Using validated')?'is-valid':'is-invalid'}`} role="status">{tabSelectionStatus}</p>}
     </header>
+    <section className="panel chat-test-detection" aria-live="polite">
+      <div className="chat-test-progress-heading"><div><p className="eyebrow">READ-ONLY CHECKS</p><h3>Control detector walkthrough</h3><p>Each click runs one check on the watched tab. It only reads the page; it does not type, switch settings, or submit.</p></div><div className="chat-test-primary-actions"><button type="button" disabled={detectorBusy||busy||tabId===undefined||detectorResults.length>=detectorSteps.length} onClick={()=>void runNextDetectorCheck()}>{detectorBusy?'Checking…':detectorResults.at(-1)?.status==='error'?`Retry check ${detectorResults.length}`:detectorResults.length===0?'Run check 1':detectorResults.length>=detectorSteps.length?'Checks complete':`Run check ${detectorResults.length+1}`}</button>{detectorResults.length>0&&<button type="button" className="secondary-button" disabled={detectorBusy} onClick={()=>setDetectorResults([])}>Reset checks</button>}</div></div>
+      {!tabId&&<p className="chat-test-run-message">Select a valid ChatGPT tab with “Use active tab” first.</p>}
+      <ol className="chat-test-sequence">{detectorSteps.map((step,index)=>{const result=detectorResults[index];const retrying=detectorBusy&&detectorResults.length===index+1&&detectorResults.at(-1)?.status==='error';return <li key={step} data-reached={result?.status==='observed'} data-failed={result?.status==='error'} data-active={retrying}><span>{result?.status==='observed'?'✓':result?.status==='error'?'!':index+1}</span><div><strong>{step}</strong><small>{result?`${result.attempts>1?`Attempt ${result.attempts} · `:''}${result.at} · ${result.detail}`:'Not checked yet'}</small></div></li>;})}</ol>
+    </section>
     <section className="panel chat-test-progress" aria-live="polite">
       <div className="chat-test-progress-heading"><div><p className="eyebrow">TEST WIZARD</p><h3>Step-by-step test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'}</p></div>
         <div className="chat-test-primary-actions">
