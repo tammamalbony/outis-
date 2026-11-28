@@ -9,6 +9,7 @@ import {activeTeamIds} from '../src/scheduler';
 import {loadTimingSettings} from '../src/extension-settings';
 import {storeCompletedChatReply} from '../src/local-mcp-client';
 import {normalizeCopiedJson} from '../src/json-cleanup';
+import {repositoryWizardWatchForChat,saveRepositoryWizardChatSnapshot} from '../src/repository-wizard';
 import {parseSupervisorPlan} from '../src/team-lifecycle';
 import type {Agent} from '../src/core';
 
@@ -341,6 +342,12 @@ async function handleChatSnapshot(message:unknown,sender:BridgeSender){
   if(sender.id!==browser.runtime.id||sender.tab?.id===undefined||sender.tab.incognito)throw new Error('Untrusted or unsupported bridge sender.');
   let senderUrl:string;
   try{senderUrl=conversationUrl(sender.url??'');}catch{return {accepted:true,ignored:true};}
+  const wizardWatch=await repositoryWizardWatchForChat(senderUrl);
+  if(wizardWatch){
+    const snapshot=parseChatSnapshot((message as {snapshot?:unknown})?.snapshot,senderUrl);
+    await saveRepositoryWizardChatSnapshot(senderUrl,snapshot);
+    return {accepted:true,wizard:true};
+  }
   const agent=await db.agents.where('chatUrl').equals(senderUrl).first();
   if(!agent||agent.chatUrl!==senderUrl)throw new Error('Bridge is limited to registered AgentSync conversations.');
   const snapshot=parseChatSnapshot((message as {snapshot?:unknown})?.snapshot,senderUrl);

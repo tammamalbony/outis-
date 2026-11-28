@@ -26,7 +26,7 @@ export const DEFAULT_TIMING_SETTINGS:TimingSettings={
   composerTextTimeoutMs:4_000,
   sendControlTimeoutMs:5_000,
   submissionTimeoutMs:10_000,
-  conversationLinkGraceMs:10_000,
+  conversationLinkGraceMs:5_000,
   conversationLinkStableMs:1_500,
   conversationLinkTimeoutMs:30_000,
   tabReadyTimeoutMs:30_000,

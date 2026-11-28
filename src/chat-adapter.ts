@@ -27,7 +27,7 @@ export const chatAdapter = {
     return openConversation(port,url,granted);
   },
   async enableTabReuse(){return browser.permissions.request({origins:[origin]});},
-  async ensureChatAccess(){return browser.permissions.request({origins:[origin]});},
+  async ensureChatAccess(){return await browser.permissions.contains({origins:[origin]})||browser.permissions.request({origins:[origin]});},
   async startApprovedTeam(teamId:string){
     const result=await browser.runtime.sendMessage({type:'AGENTSYNC_START_APPROVED_TEAM',teamId}) as {started?:boolean;error?:string}|undefined;
     if(result?.error)throw new Error(result.error);
