@@ -552,6 +552,13 @@
       sendResponse(readTestSnapshot());
       return false;
     }
+    if(message?.type==='AGENTSYNC_TEST_STOP_GENERATION'){
+      const stop=stopControl();
+      if(!stop){sendResponse({stopped:false,reason:'No enabled ChatGPT stop button is visible.'});return false;}
+      stop.click();
+      sendResponse({stopped:true,reason:'Clicked the visible stop button in the temporary test chat.'});
+      return false;
+    }
     if(message?.type==='AGENTSYNC_TEST_OPEN_CHAT_MENU'){
       const settings=resolveTimings(message.timings);
       openChatActionsMenu(Math.min(settings.sessionReadyTimeoutMs,5000),settings).then(sendResponse,error=>sendResponse({error:error instanceof Error?error.message:'Could not open ChatGPT chat menu.'}));
