@@ -422,13 +422,17 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-status-rail:hover, .chat-status-rail:focus-within { width: 224px; padding: 8px; background: var(--surface); }
 .chat-status-rail-item { display: flex; width: 26px; min-height: 26px; flex: 0 0 auto; align-items: center; gap: 10px; padding: 3px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); color: var(--muted); line-height: 1; cursor: help; transition: width .2s ease, min-height .2s ease, padding .2s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease; }
 .chat-status-rail:hover .chat-status-rail-item, .chat-status-rail:focus-within .chat-status-rail-item { width: 100%; min-height: 31px; padding: 5px 8px; }
-.chat-status-rail-item svg { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.chat-status-rail-item svg { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s cubic-bezier(.2,.8,.2,1), filter .2s ease; }
 .chat-status-rail-label { display: none; color: var(--text); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .chat-status-rail:hover .chat-status-rail-label, .chat-status-rail:focus-within .chat-status-rail-label { display: block; }
 .chat-status-rail-item:hover, .chat-status-rail-item:focus-visible { background: color-mix(in srgb,var(--text) 8%,var(--surface-soft)); box-shadow: 0 2px 8px #0005; outline: none; }
+.chat-status-rail-item:not([data-icon="loading"]):hover svg, .chat-status-rail-item:not([data-icon="loading"]):focus-visible svg { transform: translateY(-1px) scale(1.12) rotate(-4deg); filter: drop-shadow(0 1px 2px #0005); }
+.chat-status-rail-item[data-state="ready"]:hover svg, .chat-status-rail-item[data-state="yes"]:hover svg { animation: chat-status-pop .34s ease-out; }
 .chat-status-rail-item:disabled { cursor: not-allowed; }
 .chat-status-rail-item[data-icon="loading"][data-state="loading"] svg { animation: chat-status-spin 1.4s linear infinite; }
 @keyframes chat-status-spin { to { transform: rotate(360deg); } }
+@keyframes chat-status-pop { 45% { transform: translateY(-2px) scale(1.2); } 100% { transform: translateY(-1px) scale(1.12) rotate(-4deg); } }
+@media (prefers-reduced-motion: reduce) { .chat-status-rail-item svg, .chat-status-rail-item[data-icon="loading"][data-state="loading"] svg { animation: none !important; transition: none !important; } }
 .chat-status-rail-item[data-state="yes"], .chat-status-rail-item[data-state="ready"] { border-color: color-mix(in srgb,var(--success) 70%,var(--line)); background: color-mix(in srgb,var(--success) 14%,var(--surface-soft)); color: var(--success); }
 .chat-status-rail-item[data-state="no"], .chat-status-rail-item[data-state="loading"] { border-color: color-mix(in srgb,var(--danger) 70%,var(--line)); background: color-mix(in srgb,var(--danger) 14%,var(--surface-soft)); color: var(--danger); }
 .chat-status-rail-item[data-state="unknown"] { border-color: var(--line); background: var(--surface-soft); color: var(--muted); }
