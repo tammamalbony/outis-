@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {browser} from 'wxt/browser';
 import type {Agent} from '../../src/core';
 import {chatAdapter,type ChatStatusSnapshot} from '../../src/chat-adapter';
+import {chatTestConversationStorageKey} from '../../src/extension-settings';
 
 type Probe=ChatStatusSnapshot;
 type Milestone='voice'|'arrow'|'submitted'|'stop'|'voice-again';
@@ -9,12 +10,13 @@ type TestRunPhase='IDLE'|'RUNNING'|'PAUSED'|'PASSED'|'FAILED'|'STOPPED';
 type TestRunResult={status:'waiting'|'running'|'passed'|'stopped'|'failed';detail:string};
 type TestStepMetric={attempts:number;startedAt?:number;durationMs:number};
 type TestRetryEvent={step:string;at:string;detail:string};
-type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCount?:number;arrowClickAttempted?:boolean};
+type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCount?:number;arrowClickAttempted?:boolean;conversationUrl?:string};
 type DetectorResult={name:string;status:'observed'|'error';detail:string;at:string;attempts:number};
+type SavedTestChatLink={url:string;deliveryId:string;savedAt:string};
 const stages:Milestone[]=['voice','arrow','submitted','stop','voice-again'];
 const names:Record<Milestone,string>={voice:'Voice ready',arrow:'Arrow ready',submitted:'Prompt submitted',stop:'Generating', 'voice-again':'Voice returned'};
 const testRunSteps=['Open a fresh test chat','Clear any old draft','Confirm Chat mode','Set High effort','Wait for voice ready','Prepare demo prompt','Submit the prompt','Receive the expected reply','Delete the test chat'];
-const testStepValidations=['Tab ID returned and URL validates as a supported ChatGPT new-chat page','Page reports loaded and composer is visible; any draft is confirmed cleared','Composer mode buttons report Chat pressed and Work not pressed','Effort control reports High (slider value 2)','New-chat URL, empty composer, enabled voice button, Chat mode, and High effort','Composer readback contains the unique delivery ID and enabled send arrow is visible','Arrow clicked once; composer cleared, user count increased, and exact last message plus delivery ID verified','Idle state, empty composer, enabled voice button, and expected reply text detected','Expected reply and idle state rechecked; delete confirmed and conversation changed'];
+const testStepValidations=['Tab ID returned and URL validates as a supported ChatGPT new-chat page','Page reports loaded and composer is visible; any draft is confirmed cleared','Composer mode buttons report Chat pressed and Work not pressed','Effort control reports High (slider value 2)','New-chat URL, empty composer, enabled voice button, Chat mode, and High effort','Composer readback contains the unique delivery ID and enabled send arrow is visible','Arrow clicked once; composer cleared, user count increased, exact last message verified, and generated chat URL saved','Idle state, empty composer, enabled voice button, and expected reply text detected','Expected reply and idle state rechecked; delete confirmed and conversation changed'];
 const testStepRetryLimits=[0,2,1,1,2,2,1,2,1];
 const testStepWaitWindowsMs:(number|undefined)[]=[undefined,45_000,undefined,undefined,30_000,15_000,20_000,120_000,undefined];
 const detectorSteps=['Validate ChatGPT URL','Check page loaded','Detect composer','Read composer text','Check composer empty','Detect voice button','Detect send arrow','Detect stop button','Detect Chat or Work mode','Detect effort level','Check primary action'];
@@ -58,7 +60,7 @@ const statusIconPaths:Record<string,string>={
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'}))),[testClock,setTestClock]=useState(()=>Date.now());
-  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('live');
+  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('live'),[savedTestChatLink,setSavedTestChatLink]=useState<SavedTestChatLink>();
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -78,6 +80,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
   const testRetryEvents=useRef<TestRetryEvent[]>([]);
   const testRunStartedAt=useRef<number|undefined>(undefined);
   useEffect(()=>{if(testRunPhase!=='RUNNING')return;const timer=window.setInterval(()=>setTestClock(Date.now()),250);return()=>window.clearInterval(timer);},[testRunPhase]);
+  useEffect(()=>{void browser.storage.local.get(chatTestConversationStorageKey).then(stored=>{const saved=stored[chatTestConversationStorageKey] as SavedTestChatLink|undefined;if(saved&&typeof saved.url==='string'&&typeof saved.deliveryId==='string'&&typeof saved.savedAt==='string')setSavedTestChatLink(saved);}).catch(()=>{});},[]);
   useEffect(()=>{
     let cancelled=false;
     void browser.permissions.contains({origins:['https://chatgpt.com/*']}).then(async granted=>{
@@ -180,6 +183,16 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       await new Promise(resolve=>window.setTimeout(resolve,500));
     }
     throw new Error('Timed out while waiting for ChatGPT to reach the expected test state. The test chat was kept for inspection.');
+  }
+  async function saveGeneratedTestChatLink(id:number,deliveryId:string,initial?:Probe){
+    const linked=initial?.hasConversationUrl&&initial.conversationUrl?initial:await waitForTestSnapshot(id,value=>value.hasConversationUrl&&Boolean(value.conversationUrl),15_000,true);
+    const fromPage=validateChatGPTTabUrl(linked.href),fromSnapshot=validateChatGPTTabUrl(linked.conversationUrl);
+    if(fromPage.kind!=='conversation'||fromSnapshot.kind!=='conversation'||fromPage.url!==fromSnapshot.url)throw new Error('The first message was confirmed, but ChatGPT has not produced a matching conversation URL yet. The link was not saved; resume to check again.');
+    const saved:SavedTestChatLink={url:fromPage.url,deliveryId,savedAt:new Date().toISOString()};
+    const context=testContext.current;if(context?.tabId===id)context.conversationUrl=saved.url;
+    await browser.storage.local.set({[chatTestConversationStorageKey]:saved});
+    setSavedTestChatLink(saved);
+    return saved.url;
   }
   function beginTestStep(index:number,message:string){
     if(testStopRequested.current)throw new Error('Stop requested.');
@@ -295,13 +308,15 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         if(ctx.arrowClickAttempted){
           const reconciled=await chatAdapter.reconcileSubmission(id,before.conversationUrl||'https://chatgpt.com/',promptKey,prompt,true);
           if(!reconciled.confirmed)throw new Error(`A prior arrow click was attempted. Reconciliation after one reload did not confirm the exact saved message: ${reconciled.reason} The prompt was not resent; inspect this chat or restart in a new test chat.`);
+          const savedUrl=await saveGeneratedTestChatLink(id,promptKey);
           markTestMilestone('submitted');
-          passTestStep(6,'Reconciled the prior arrow-click attempt: exact prompt and delivery ID were found after reload. No second click was made.');
+          passTestStep(6,`Reconciled the prior arrow-click attempt; exact prompt verified after reload and conversation URL saved: ${savedUrl}. No second click was made.`);
         }else if(before.composerEmpty&&ctx.userMessageCount!==undefined&&before.userMessageCount>ctx.userMessageCount){
           const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:before.conversationUrl,dedupeKey:promptKey,text:prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
           if(proof?.confirmed!==true)throw new Error(`Composer is empty, but the exact saved test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). It was not resent; the test chat was kept for inspection.`);
+          const savedUrl=await saveGeneratedTestChatLink(id,promptKey,before);
           markTestMilestone('submitted');
-          passTestStep(6,'On resume, confirmed the exact latest user message, saved delivery ID, and empty composer; it was not sent again.');
+          passTestStep(6,`On resume, confirmed the exact latest user message and empty composer; saved conversation URL ${savedUrl}. The prompt was not sent again.`);
         }else{
           if(!before.composerVisible||before.composerEmpty||!before.composerText.includes(promptKey))throw new Error('The labeled test prompt is not already in the composer. Nothing was staged, cleared, or submitted.');
           if(!before.arrowVisible||!before.arrowEnabled)throw new Error('The send arrow is not visible and enabled. Nothing was clicked; prepare the prompt and retry this step.');
@@ -311,8 +326,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
           const accepted=await waitForTestSnapshot(id,value=>value.composerEmpty&&value.userMessageCount>before.userMessageCount,20_000,true);
           const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:accepted.conversationUrl,dedupeKey:promptKey,text:prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
           if(proof?.confirmed!==true)throw new Error(`The arrow was clicked once, but the exact test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). No retry or resend was attempted; the test chat was kept for inspection.`);
+          const savedUrl=await saveGeneratedTestChatLink(id,promptKey,accepted);
           markTestMilestone('submitted');
-          passTestStep(6,'Clicked ChatGPT’s enabled arrow once; the composer cleared, a new user message appeared, and the exact prompt was verified.');
+          passTestStep(6,`Clicked ChatGPT’s enabled arrow once; composer cleared, exact prompt verified, and generated conversation URL saved: ${savedUrl}.`);
         }
       }
       if(testCheckpoint.current<=7&&stepLimit>=7){
@@ -453,6 +469,11 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       await navigator.clipboard.writeText(text);setRailActionStatus(`${label} copied.`);
     }catch(e){setRailActionStatus(`Could not copy ${label.toLowerCase()}: ${e instanceof Error?e.message:String(e)}`);}
   }
+  async function copySavedTestChatLink(){
+    if(!savedTestChatLink)return;
+    try{if(!await browser.permissions.request({permissions:['clipboardWrite']}))throw new Error('Clipboard permission was not granted.');await navigator.clipboard.writeText(savedTestChatLink.url);setRailActionStatus('Saved generated test-chat URL copied.');}
+    catch(error){setRailActionStatus(`Could not copy saved test-chat URL: ${error instanceof Error?error.message:String(error)}`);}
+  }
   async function copyTestReport(){
     const elapsedMs=testRunStartedAt.current?Date.now()-testRunStartedAt.current:0;
     const lines=[
@@ -464,6 +485,8 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       `Reason / summary: ${testRunMessage||error||'No run summary recorded.'}`,
       `Test tab ID: ${testContext.current?.tabId??tabId??'unknown'}`,
       `Delivery ID: ${testContext.current?.promptKey??'none'}`,
+      `Generated conversation URL: ${savedTestChatLink?.url??testContext.current?.conversationUrl??'not detected yet'}`,
+      `Conversation URL saved at: ${savedTestChatLink?.savedAt??'not saved'}`,
       '',
       'Steps:'
     ];
@@ -617,6 +640,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         </div>
       </div>
       {testRunMessage&&<p className={`chat-test-run-message ${testRunPhase==='FAILED'||testRunPhase==='STOPPED'?'error':testRunPhase==='PASSED'?'notice':''}`} role="status">{testRunMessage}</p>}
+      {savedTestChatLink&&<section className="chat-test-detail-block chat-test-saved-link" aria-label="Saved generated test chat URL"><h4>Generated test-chat URL</h4><a className="chat-test-url" href={savedTestChatLink.url} target="_blank" rel="noreferrer">{savedTestChatLink.url}</a><small>Saved after delivery ID {savedTestChatLink.deliveryId} · {new Date(savedTestChatLink.savedAt).toLocaleString()}</small><div className="chat-test-composer-buttons"><button type="button" className="secondary-button" onClick={()=>void copySavedTestChatLink()}>Copy saved link</button></div><small>{testRunPhase==='PASSED'?'The test chat was deleted after success; this URL remains saved as the run record.':'The link is retained locally and reused when the test resumes.'}</small></section>}
       <ol className="chat-test-sequence">{testRunSteps.map((step,index)=>{const result=testRunResults[index]??{status:'waiting' as const,detail:'Not started'};const metric=testStepMetrics.current[index];const elapsed=metric.durationMs+(metric.startedAt?testClock-metric.startedAt:0);const attemptElapsed=metric.startedAt?testClock-metric.startedAt:elapsed;const retriesLeft=Math.max(0,testStepRetryLimits[index]-Math.max(0,metric.attempts-1));const waitWindow=testStepWaitWindowsMs[index];const waitLeft=waitWindow===undefined?undefined:Math.max(0,waitWindow-attemptElapsed);const nextStep=testRunPhase==='PAUSED'&&index===testCheckpoint.current;const safety=index===6?' Delivery recovery only; a retry will never click Send again.':index===8?' If deletion is uncertain, inspect the test chat before retrying.':'';return <li key={step} data-reached={result.status==='passed'} data-active={result.status==='running'||nextStep} data-failed={result.status==='failed'||result.status==='stopped'}><span>{result.status==='passed'?'✓':result.status==='failed'?'!':result.status==='stopped'?'Ⅱ':result.status==='running'?'…':index+1}</span><div><strong>{step}</strong><small><b>Confirm:</b> {testStepValidations[index]}</small><small>{nextStep?'Up next · ':''}{result.detail}</small><small><b>Time:</b> {formatTestTime(elapsed)} elapsed{waitWindow!==undefined?` · wait window up to ${Math.ceil(waitWindow/1000)}s`:''}{result.status==='running'&&waitLeft!==undefined?` · ${waitLeft>0?`${Math.ceil(waitLeft/1000)}s remaining`:'wait window elapsed; checking result'}`:''} · <b>Retries left:</b> {retriesLeft}{metric.attempts?` · attempts: ${metric.attempts}`:''}{safety}</small></div></li>;})}</ol>
       {testCheckpoint.current>0&&testRunPhase!=='RUNNING'&&<button type="button" className="secondary-button" onClick={()=>void copyTestReport()}>Copy test report</button>}
     </section>}

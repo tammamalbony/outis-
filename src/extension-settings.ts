@@ -3,6 +3,7 @@ import {DEFAULT_TIMING_SETTINGS,readTimingSettings,type TimingSettings} from './
 
 export const timingSettingsStorageKey='agentsync.timing-settings.v1';
 export const pageStatusRailStorageKey='agentsync.page-status-rail.v1';
+export const chatTestConversationStorageKey='agentsync.chatgpt-test.saved-conversation.v1';
 
 export async function loadPageStatusRailEnabled():Promise<boolean>{
   try{const stored=await browser.storage.local.get(pageStatusRailStorageKey);return stored[pageStatusRailStorageKey]===true;}catch{return false;}
@@ -24,5 +25,5 @@ export async function saveTimingSettings(settings:TimingSettings):Promise<void>{
 }
 
 export async function clearTimingSettings():Promise<void>{
-  await browser.storage.local.remove(timingSettingsStorageKey);
+  await browser.storage.local.remove([timingSettingsStorageKey,pageStatusRailStorageKey,chatTestConversationStorageKey]);
 }
