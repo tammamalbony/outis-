@@ -3,7 +3,7 @@ import {browser} from 'wxt/browser';
 import type {Agent} from '../../src/core';
 import {chatAdapter} from '../../src/chat-adapter';
 
-type Probe={href:string;hasConversationUrl:boolean;conversationUrl:string;pageLoaded:boolean;composerVisible:boolean;composerText:string;composerTextTruncated:boolean;composerMode:'CHAT'|'WORK'|'UNKNOWN';effort:'LOW'|'MEDIUM'|'HIGH'|'UNKNOWN';composerEmpty:boolean;composerLength:number;voiceVisible:boolean;voiceEnabled:boolean;arrowVisible:boolean;arrowEnabled:boolean;stopVisible:boolean;stopEnabled:boolean;pauseVisible:boolean;pauseEnabled:boolean;userMessageCount:number;latestUserMessage:string;latestReplyFirstLine:string;latestReplyCopyStatus:'NOT_COPIED'|'COPY_CLICKED'|'COPIED';state:'LOADING'|'NEW'|'IDLE'|'WORKING'|'PROMPT_READY'|'SUBMITTED'|'WAITING';observedAt:string};
+type Probe={href:string;hasConversationUrl:boolean;conversationUrl:string;pageLoaded:boolean;composerVisible:boolean;composerText:string;composerTextTruncated:boolean;composerMode:'CHAT'|'WORK'|'UNKNOWN';effort:'LOW'|'MEDIUM'|'HIGH'|'UNKNOWN';composerEmpty:boolean;composerLength:number;voiceVisible:boolean;voiceEnabled:boolean;arrowVisible:boolean;arrowEnabled:boolean;stopVisible:boolean;stopEnabled:boolean;pauseVisible:boolean;pauseEnabled:boolean;userMessageCount:number;latestUserMessage:string;latestUserMessageTruncated:boolean;latestReplyText:string;latestReplyTruncated:boolean;latestReplyFirstLine:string;latestReplyCopyStatus:'NOT_COPIED'|'COPY_CLICKED'|'COPIED';state:'LOADING'|'NEW'|'IDLE'|'WORKING'|'PROMPT_READY'|'SUBMITTED'|'WAITING';observedAt:string};
 type Milestone='voice'|'arrow'|'submitted'|'stop'|'voice-again';
 type TestRunPhase='IDLE'|'RUNNING'|'PAUSED'|'PASSED'|'FAILED'|'STOPPED';
 type TestRunResult={status:'waiting'|'running'|'passed'|'stopped'|'failed';detail:string};
@@ -53,6 +53,7 @@ const statusIconPaths:Record<string,string>={
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));
+  const [railActionStatus,setRailActionStatus]=useState('');
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -314,6 +315,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       if(result?.error||result?.confirmed!==true)throw new Error(result?.error||`ChatGPT did not confirm ${mode} mode.`);
       const value=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
       if(value)setProbe(value);
+      setRailActionStatus(`${mode==='CHAT'?'Chat':'Work'} mode selected.`);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
   async function setEffort(value:number){
@@ -326,6 +328,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       const snapshot=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
       if(snapshot)setProbe(snapshot);
       effortTouched.current=false;setEffortDraft(value);
+      setRailActionStatus(`${effort[0]}${effort.slice(1).toLowerCase()} effort selected.`);
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
   async function changeComposerText(clear:boolean){
@@ -353,6 +356,38 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       const updated=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
       if(updated){setProbe(updated);setComposerTestStatus(updated.composerEmpty?'Clicked the send arrow. ChatGPT cleared the composer.':'Clicked the send arrow. The composer still has text; check ChatGPT before trying again.');}
     }catch(e){setComposerTestStatus(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
+  }
+  async function activateStatusRailIcon(icon:string){
+    if(!probe)return;
+    if(icon==='link'){
+      if(!statusUrlValid)return;
+      await copyStatusRailText(statusUrl,'Current ChatGPT URL');
+      return;
+    }
+    if(icon==='mode-chat'||icon==='mode-work'||icon==='mode'){
+      await setMode(probe.composerMode==='CHAT'?'WORK':'CHAT');
+      return;
+    }
+    if(icon.startsWith('effort-')){
+      const current=probe.effort==='LOW'?0:probe.effort==='MEDIUM'?1:probe.effort==='HIGH'?2:-1;
+      await setEffort((current+1)%3);
+      return;
+    }
+    if(icon==='user-message'){
+      if(!submitted||!probe.latestUserMessage)return;
+      await copyStatusRailText(probe.latestUserMessage,`Latest submitted message${probe.latestUserMessageTruncated?' (first 40,000 characters)':''}`);
+      return;
+    }
+    if(icon==='assistant-message'){
+      if(!probe.latestReplyText)return;
+      await copyStatusRailText(probe.latestReplyText,`Latest assistant response${probe.latestReplyTruncated?' (first 40,000 characters)':''}`);
+    }
+  }
+  async function copyStatusRailText(text:string,label:string){
+    try{
+      if(!await browser.permissions.request({permissions:['clipboardWrite']}))throw new Error('Clipboard permission was not granted.');
+      await navigator.clipboard.writeText(text);setRailActionStatus(`${label} copied.`);
+    }catch(e){setRailActionStatus(`Could not copy ${label.toLowerCase()}: ${e instanceof Error?e.message:String(e)}`);}
   }
   async function copyTestReport(){
     const elapsedMs=testRunStartedAt.current?Date.now()-testRunStartedAt.current:0;
@@ -427,7 +462,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
   if(statusUrl){try{statusUrlKind=validateChatGPTTabUrl(statusUrl).kind;statusUrlValid=true;}catch{statusUrlValid=false;}}
   const primaryButtonEnabled=probe?(probe.arrowVisible?probe.arrowEnabled:probe.stopVisible?probe.stopEnabled:probe.voiceVisible?probe.voiceEnabled:false):undefined;
   const statusItems=[
-    {icon:'link',label:'URL valid',state:statusUrlValid===undefined?'unknown':statusUrlValid?'yes':'no',detail:statusUrlValid===undefined?'No active tab URL has been checked.':statusUrlValid?statusUrl:'This URL is not an approved ChatGPT URL.'},
+    {icon:'link',label:statusUrlValid?'URL valid · click to copy':'URL valid',state:statusUrlValid===undefined?'unknown':statusUrlValid?'yes':'no',detail:statusUrlValid===undefined?'No active tab URL has been checked.':statusUrlValid?`${statusUrl} · click to copy`:'This URL is not an approved ChatGPT URL.'},
     {icon:'chat',label:'New chat URL',state:statusUrlKind==='unknown'?'unknown':statusUrlKind==='new chat'?'yes':'no',detail:statusUrlKind==='unknown'?'Chat URL type is not known.':statusUrlKind==='new chat'?'The URL is chatgpt.com without a conversation ID.':'A conversation ID is present in the URL.'},
     {icon:'send',label:'Send arrow',state:!probe?'unknown':probe.arrowVisible?'yes':'no',detail:!probe?'Waiting for a page snapshot.':probe.arrowVisible?`Visible · ${probe.arrowEnabled?'enabled':'disabled'}`:'Not visible'},
     {icon:'mic',label:'Voice control',state:!probe?'unknown':probe.voiceVisible?'yes':'no',detail:!probe?'Waiting for a page snapshot.':probe.voiceVisible?`Visible · ${probe.voiceEnabled?'enabled':'disabled'}`:'Not visible'},
@@ -435,11 +470,11 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     {icon:'loading',label:'Page loading',state:activeTabLoading?'yes':statusUrl?'no':'unknown',detail:activeTabLoading?'The active tab is still loading.':statusUrl?'The active tab is not loading.':'No active tab is selected.'},
     {icon:'ready',label:'Page ready',state:!probe?'unknown':probe.pageLoaded&&probe.composerVisible?'yes':'no',detail:!probe?'Waiting for the page snapshot.':probe.pageLoaded&&probe.composerVisible?'Page loaded and composer detected.':`Page loaded: ${probe.pageLoaded?'yes':'no'} · composer: ${probe.composerVisible?'visible':'not visible'}`},
     {icon:'composer',label:'Composer',state:!probe?'unknown':probe.composerVisible?'yes':'no',detail:!probe?'Waiting for a page snapshot.':probe.composerVisible?probe.composerEmpty?'Visible · empty':`Visible · ${probe.composerLength} characters`:'Not visible'},
-    {icon:probe?.composerMode==='CHAT'?'mode-chat':probe?.composerMode==='WORK'?'mode-work':'mode',label:'Composer mode',state:!probe||probe.composerMode==='UNKNOWN'?'unknown':'info',detail:probe?.composerMode==='CHAT'?'Chat mode':probe?.composerMode==='WORK'?'Work mode':'Mode not detected'},
-    {icon:probe?.effort==='LOW'?'effort-low':probe?.effort==='MEDIUM'?'effort-medium':probe?.effort==='HIGH'?'effort-high':'effort-unknown',label:'Effort',state:!probe||probe.effort==='UNKNOWN'?'unknown':'info',detail:probe&&probe.effort!=='UNKNOWN'?`${probe.effort[0]}${probe.effort.slice(1).toLowerCase()} effort`:'Effort not detected'},
+    {icon:probe?.composerMode==='CHAT'?'mode-chat':probe?.composerMode==='WORK'?'mode-work':'mode',label:probe?.composerMode==='CHAT'?'Chat mode · click to switch':probe?.composerMode==='WORK'?'Work mode · click to switch':'Mode · click to set Chat',state:!probe||probe.composerMode==='UNKNOWN'?'unknown':'info',detail:probe?.composerMode==='CHAT'?'Chat mode · click to switch to Work':probe?.composerMode==='WORK'?'Work mode · click to switch to Chat':'Mode not detected · click to select Chat'},
+    {icon:probe?.effort==='LOW'?'effort-low':probe?.effort==='MEDIUM'?'effort-medium':probe?.effort==='HIGH'?'effort-high':'effort-unknown',label:probe?.effort&&probe.effort!=='UNKNOWN'?`${probe.effort[0]}${probe.effort.slice(1).toLowerCase()} effort · click to cycle`:'Effort · click to set Low',state:!probe||probe.effort==='UNKNOWN'?'unknown':'info',detail:probe&&probe.effort!=='UNKNOWN'?`${probe.effort[0]}${probe.effort.slice(1).toLowerCase()} effort · click to cycle Low, Medium, High`:'Effort not detected · click to set Low'},
     {icon:'button',label:'Action button',state:primaryButtonEnabled===undefined?'unknown':primaryButtonEnabled?'yes':'no',detail:primaryButtonEnabled===undefined?'No action button state is available.':`${probe?.arrowVisible?'Arrow':probe?.stopVisible?'Stop':probe?.voiceVisible?'Voice':'No action'} · ${primaryButtonEnabled?'enabled':'disabled'}`},
-    {icon:'user-message',label:'User message submitted',state:!probe||baseline===undefined?'unknown':submitted?'yes':'no',detail:submitted?`Latest detected user message:\n${probe?.latestUserMessage||'(message text not detected)'}`:'No newly submitted user message detected since monitoring began.'},
-    {icon:'assistant-message',label:'Assistant response detected',state:!probe?'unknown':probe.latestReplyFirstLine?'yes':'no',detail:probe?.latestReplyFirstLine?`Latest response, first line:\n${probe.latestReplyFirstLine}`:'No assistant response detected yet.'}
+    {icon:'user-message',label:submitted?'Submitted message · click to copy':'User message submitted',state:!probe||baseline===undefined?'unknown':submitted?'yes':'no',detail:submitted?`Latest detected user message:\n${probe?.latestUserMessage||'(message text not detected)'}`:'No newly submitted user message detected since monitoring began.'},
+    {icon:'assistant-message',label:probe?.latestReplyFirstLine?'Response · click to copy':'Assistant response detected',state:!probe?'unknown':probe.latestReplyFirstLine?'yes':'no',detail:probe?.latestReplyFirstLine?`Latest response, first line:\n${probe.latestReplyFirstLine}`:'No assistant response detected yet.'}
   ] as const;
   async function testChatAction(action:'OPEN'|'DELETE'|'ARCHIVE'){
     if(tabId===undefined||!probe?.hasConversationUrl)return;
@@ -458,7 +493,17 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
   return <section className="chat-test-wizard" role="tabpanel" id="panel-chatgpt" aria-labelledby="tab-chatgpt">
-    {statusUrl&&<aside className="chat-status-rail" aria-label="Live active tab status">{statusItems.map(item=><span key={item.label} className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={`${item.label}: ${item.detail}`} aria-label={`${item.label}: ${item.detail}`} role="img" tabIndex={0}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={statusIconPaths[item.icon]}/></svg><span className="chat-status-rail-label">{item.label}</span></span>)}</aside>}
+    {statusUrl&&<aside className="chat-status-rail" aria-label="Live active tab status">{statusItems.map(item=>{
+      const isMode=item.icon==='mode-chat'||item.icon==='mode-work'||item.icon==='mode';
+      const isEffort=item.icon.startsWith('effort-');
+      const isCopyMessage=item.icon==='user-message'&&submitted&&Boolean(probe?.latestUserMessage);
+      const isCopyReply=item.icon==='assistant-message'&&Boolean(probe?.latestReplyText);
+      const clickable=(item.icon==='link'&&statusUrlValid===true)||isMode||isEffort||isCopyMessage||isCopyReply;
+      const disabled=controlBusy||!clickable||((isMode||isEffort)&&!probe);
+      const title=`${item.label}: ${item.detail}`;
+      const content=<><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={statusIconPaths[item.icon]}/></svg><span className="chat-status-rail-label">{item.label}</span></>;
+      return clickable?<button key={item.label} type="button" className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={title} aria-label={title} disabled={disabled} onClick={()=>void activateStatusRailIcon(item.icon)}>{content}</button>:<span key={item.label} className="chat-status-rail-item" data-state={item.state} data-icon={item.icon} title={title} aria-label={title} role="img" tabIndex={0}>{content}</span>;
+    })}{railActionStatus&&<span className="chat-status-rail-action" role="status">{railActionStatus}</span>}</aside>}
     <header className="chat-test-header">
       <div><p className="eyebrow">CHATGPT</p><h2>ChatGPT test</h2><p>Run the test one step at a time. Review each result before continuing.</p></div>
       <div className="chat-test-toolbar">

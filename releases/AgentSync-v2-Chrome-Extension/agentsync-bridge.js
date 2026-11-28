@@ -294,7 +294,9 @@
     const {chat:chatModeButton,work:workModeButton}=composerModeControls();
     const composerMode=chatModeButton?.getAttribute('aria-pressed')==='true'&&workModeButton?.getAttribute('aria-pressed')==='false'?'CHAT':workModeButton?.getAttribute('aria-pressed')==='true'&&chatModeButton?.getAttribute('aria-pressed')==='false'?'WORK':'UNKNOWN';
     const latestReply=latestAssistantMessage();
-    const latestReplyText=textOf(latestReply);
+    const latestReplyRaw=fullTextOf(latestReply);
+    const latestReplyText=latestReplyRaw.slice(0,40_000);
+    const latestReplyTruncated=latestReplyRaw.length>40_000;
     const replySignature=hash(latestReplyText);
     if(replySignature!==lastTestReplySignature){lastTestReplySignature=replySignature;lastReplyCopyClickedAt=0;}
     const replyFirstLine=latestReplyText.split(/\r?\n/).map(line=>normalizeText(line)).find(Boolean)||'';
@@ -306,8 +308,10 @@
     else if(text&&arrow&&enabledButton(arrow))state='PROMPT_READY';
     else if(stop&&enabledButton(stop))state='WORKING';
     else if(!text&&voice&&enabledButton(voice))state=conversation?'IDLE':'NEW';
-    const latestUserMessage=fullTextOf(userMessages().at(-1)).slice(0,5000);
-    return {href:location.href,hasConversationUrl:conversation,conversationUrl:conversation?cleanUrl():'',pageLoaded,composerVisible:visible,composerText:visible?composerText(input).slice(0,5000):'',composerTextTruncated:visible&&composerText(input).length>5000,composerEmpty:!text,composerLength:text.length,composerMode,effort:effortLevel(),voiceVisible:Boolean(voice),voiceEnabled:enabledButton(voice),arrowVisible:Boolean(arrow),arrowEnabled:enabledButton(arrow),stopVisible:Boolean(stop),stopEnabled:enabledButton(stop),pauseVisible:Boolean(pause),pauseEnabled:enabledButton(pause),userMessageCount:userMessages().length,latestUserMessage,latestReplyFirstLine:replyFirstLine.slice(0,500),latestReplyCopyStatus,state,observedAt:new Date().toISOString()};
+    const latestUserMessageRaw=fullTextOf(userMessages().at(-1));
+    const latestUserMessage=latestUserMessageRaw.slice(0,40_000);
+    const latestUserMessageTruncated=latestUserMessageRaw.length>40_000;
+    return {href:location.href,hasConversationUrl:conversation,conversationUrl:conversation?cleanUrl():'',pageLoaded,composerVisible:visible,composerText:visible?composerText(input).slice(0,5000):'',composerTextTruncated:visible&&composerText(input).length>5000,composerEmpty:!text,composerLength:text.length,composerMode,effort:effortLevel(),voiceVisible:Boolean(voice),voiceEnabled:enabledButton(voice),arrowVisible:Boolean(arrow),arrowEnabled:enabledButton(arrow),stopVisible:Boolean(stop),stopEnabled:enabledButton(stop),pauseVisible:Boolean(pause),pauseEnabled:enabledButton(pause),userMessageCount:userMessages().length,latestUserMessage,latestUserMessageTruncated,latestReplyText,latestReplyTruncated,latestReplyFirstLine:replyFirstLine.slice(0,500),latestReplyCopyStatus,state,observedAt:new Date().toISOString()};
   }
 
   document.addEventListener('click',event=>{
