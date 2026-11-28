@@ -1,4 +1,4 @@
-# AgentSync 0.1.0 — Phase 1 starter
+# AgentSync 0.2.0 — Phase 1 starter
 
 Local WXT / React / TypeScript Manifest V3 side-panel extension. No OpenAI API or remote backend. Prompt handoffs are manual by default; an explicit opt-in A0 bridge can read only registered ChatGPT chats and submit validated continuations within that feature team.
 

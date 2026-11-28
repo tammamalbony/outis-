@@ -31,7 +31,7 @@ const explanations:Record<Probe['state'],string>={
   SUBMITTED:'A new user message appeared and the composer cleared. ChatGPT accepted the prompt.',
   WAITING:'The page has not reached a recognized ready state. Check the composer and wait for its action button to become enabled.'
 };
-export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{savedAgents?:Agent[];embedded?:boolean}){
+export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
@@ -437,10 +437,10 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       else throw new Error('ChatGPT did not confirm the requested menu action.');
     }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setControlBusy(false);}
   }
-  return <section className="chat-test-wizard" role="tabpanel" id={embedded?'panel-live-chat':'panel-chatgpt'} aria-labelledby={embedded?'status-live-chat-title':'tab-chatgpt'}>
+  return <section className="chat-test-wizard" role="tabpanel" id="panel-chatgpt" aria-labelledby="tab-chatgpt">
     {statusUrl&&<aside className="chat-status-rail" aria-label="Live active tab status">{statusItems.map(item=><span key={item.label} className="chat-status-rail-item" data-state={item.state} title={`${item.label}: ${item.detail}`} aria-label={`${item.label}: ${item.detail}`} role="img">{item.icon}</span>)}</aside>}
     <header className="chat-test-header">
-      <div><p className="eyebrow">CHATGPT</p><h2 id={embedded?'status-live-chat-title':undefined}>{embedded?'Current chat':'ChatGPT test'}</h2><p>Run the test one step at a time. Review each result before continuing.</p></div>
+      <div><p className="eyebrow">CHATGPT</p><h2>ChatGPT test</h2><p>Run the test one step at a time. Review each result before continuing.</p></div>
       <div className="chat-test-toolbar">
         <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void openNew()}>{busy?'Opening…':'Open new chat'}</button>
         <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void useActiveTab()}>Use active tab</button>

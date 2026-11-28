@@ -1,7 +1,6 @@
 import {useMemo} from 'react';
 import type {Agent,AgentBridgeObservation,Event,Order,Team} from '../../src/core';
 import ChatMonitor from './ChatMonitor';
-import ChatGPTTestWizard from './ChatGPTTestWizard';
 
 const nice=(value:string)=>value.toLowerCase().replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase());
 function latestOrder(agent:Agent,orders:Order[]){return orders.filter(order=>order.agentId===agent.id&&order.teamId===agent.teamId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];}
@@ -54,7 +53,6 @@ export default function StatusTab({teams,agents,orders,events,observations,onOpe
         {allReportsReturned&&<p className="notice status-complete-notice">{allFinished?'All five workers finished their work and returned replies accepted by A0. Team work is complete for this cycle.':'All five workers finished their work and returned replies. A0 review and acceptance are still pending.'}</p>}
       </article>;
     })}
-    <ChatGPTTestWizard savedAgents={agents} embedded/>
     <ChatMonitor agents={agents} teams={teams} orders={orders} observations={observations} onOpenChat={onOpenChat}/>
   </section>;
 }
