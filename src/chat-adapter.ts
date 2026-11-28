@@ -6,6 +6,14 @@ import {loadTimingSettings} from './extension-settings';
 const origin='https://chatgpt.com/*';
 const bridgeScriptId='agentsync-registered-chat-bridge-v1';
 const wait=(milliseconds:number)=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+export type ChatStatusSnapshot={href:string;hasConversationUrl:boolean;conversationUrl:string;pageLoaded:boolean;composerVisible:boolean;composerText:string;composerTextTruncated:boolean;composerMode:'CHAT'|'WORK'|'UNKNOWN';effort:'LOW'|'MEDIUM'|'HIGH'|'UNKNOWN';composerEmpty:boolean;composerLength:number;voiceVisible:boolean;voiceEnabled:boolean;arrowVisible:boolean;arrowEnabled:boolean;stopVisible:boolean;stopEnabled:boolean;pauseVisible:boolean;pauseEnabled:boolean;userMessageCount:number;latestUserMessage:string;latestUserMessageTruncated:boolean;latestReplyText:string;latestReplyTruncated:boolean;latestReplyFirstLine:string;latestReplyCopyStatus:'NOT_COPIED'|'COPY_CLICKED'|'COPIED';state:'LOADING'|'NEW'|'IDLE'|'WORKING'|'PROMPT_READY'|'SUBMITTED'|'WAITING';observedAt:string};
+type BridgeActionResult={confirmed?:boolean;clicked?:boolean;error?:string};
+async function sendChatPageMessage<T>(tabId:number,type:string,payload:Record<string,unknown>={}):Promise<T|undefined>{
+  const tab=await browser.tabs.get(tabId);
+  if(!tab.url?.startsWith('https://chatgpt.com/'))throw new Error('This action is only available on chatgpt.com.');
+  await browser.scripting.executeScript({target:{tabId},files:['agentsync-bridge.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);
+  return browser.tabs.sendMessage(tabId,{type,...payload}) as Promise<T|undefined>;
+}
 async function reconcileAfterReload(tabId:number,expectedUrl:string,dedupeKey:string,text:string,allowNewConversation=false){
   const deliveryReconcileTimeoutMs=(await loadTimingSettings()).deliveryReconcileTimeoutMs;
   const allowed=(tab:{url?:string})=>{
@@ -43,7 +51,30 @@ const port:TabPort={
   create:url=>browser.tabs.create({url}),
 };
 export const chatAdapter = {
-  async openNew(){await browser.tabs.create({url:'https://chatgpt.com/'});},
+  async openNew(){return browser.tabs.create({url:'https://chatgpt.com/'});},
+  async readStatusSnapshot(tabId:number){
+    const snapshot=await sendChatPageMessage<ChatStatusSnapshot>(tabId,'AGENTSYNC_TEST_SNAPSHOT');
+    if(!snapshot)throw new Error('ChatGPT did not return a status snapshot.');
+    return snapshot;
+  },
+  async setComposerMode(tabId:number,mode:'CHAT'|'WORK'){
+    return sendChatPageMessage<BridgeActionResult>(tabId,'AGENTSYNC_SET_COMPOSER_MODE',{mode});
+  },
+  async ensureChatMode(tabId:number){
+    return sendChatPageMessage<BridgeActionResult>(tabId,'AGENTSYNC_ENSURE_CHAT_MODE');
+  },
+  async setEffort(tabId:number,effort:'LOW'|'MEDIUM'|'HIGH'){
+    return sendChatPageMessage<BridgeActionResult>(tabId,'AGENTSYNC_SET_EFFORT',{effort});
+  },
+  async clearComposer(tabId:number){
+    return sendChatPageMessage<BridgeActionResult>(tabId,'AGENTSYNC_TEST_CLEAR_COMPOSER');
+  },
+  async setComposerText(tabId:number,text:string){
+    return sendChatPageMessage<BridgeActionResult>(tabId,'AGENTSYNC_TEST_SET_COMPOSER_TEXT',{text});
+  },
+  async clickSendArrow(tabId:number){
+    return sendChatPageMessage<BridgeActionResult>(tabId,'AGENTSYNC_TEST_CLICK_SEND_ARROW');
+  },
   async listOpenConversations(){
     if(!await browser.permissions.contains({origins:[origin]}))return null;
     return port.list();
