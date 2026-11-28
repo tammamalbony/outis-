@@ -408,6 +408,7 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-test-header p:last-child { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .chat-test-toolbar, .chat-test-primary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .chat-test-toolbar button, .chat-test-primary-actions button { padding: 7px 9px; font-size: 10px; }
+.chat-test-primary-actions button.secondary-button { border-color: var(--line); background: var(--surface-soft); color: var(--text); }
 .chat-test-progress { min-width: 0; }
 .chat-test-progress-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-test-progress-heading h3 { margin: 0; font-size: 14px; }
@@ -430,6 +431,12 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-test-current-reply { margin: 9px 0 5px; font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .chat-test-current-reply strong { color: var(--muted); }
 .chat-test-open-link { display: inline-block; margin-top: 4px; color: var(--orange); font-size: 10px; }
+.chat-test-composer-quick { display: grid; gap: 6px; }
+.chat-test-composer-quick h3 { margin: 0; font-size: 12px; }
+.chat-test-composer-quick p { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
+.chat-test-composer-preview { max-height: 70px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 9px; }
+.chat-test-composer-quick .chat-test-control-note { margin: 0; }
+.chat-test-composer-quick [role="status"] { margin: 2px 0 0; font-size: 10px; }
 .chat-test-waiting p { margin-bottom: 0; color: var(--muted); font-size: 11px; }
 .chat-test-details { min-width: 0; padding: 0; overflow: hidden; }
 .chat-test-details > summary { padding: 12px; color: var(--text); font-size: 12px; font-weight: 750; cursor: pointer; list-style-position: inside; }
