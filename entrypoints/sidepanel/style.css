@@ -178,6 +178,21 @@ main[data-theme="light"] {
   --violet: #5450a5;
   --muted-chart: #85898d;
 }
+
+/* Keep document and nested-panel scrollbars in step with the selected theme. */
+body:has(main[data-theme="dark"]) { scrollbar-color: #ff6b00 #292a2e; scrollbar-width: thin; }
+body:has(main[data-theme="light"]) { scrollbar-color: #f06a00 #eaedef; scrollbar-width: thin; }
+main[data-theme] *, main[data-theme] { scrollbar-color: var(--orange) var(--surface-soft); scrollbar-width: thin; }
+body::-webkit-scrollbar, body *::-webkit-scrollbar { width: 10px; height: 10px; }
+body:has(main[data-theme="dark"])::-webkit-scrollbar-track,
+body:has(main[data-theme="dark"]) *::-webkit-scrollbar-track { background: #292a2e; border-radius: 999px; }
+body:has(main[data-theme="light"])::-webkit-scrollbar-track,
+body:has(main[data-theme="light"]) *::-webkit-scrollbar-track { background: #eaedef; border-radius: 999px; }
+body:has(main[data-theme="dark"])::-webkit-scrollbar-thumb,
+body:has(main[data-theme="dark"]) *::-webkit-scrollbar-thumb { background: #b64d00; border: 2px solid #292a2e; border-radius: 999px; }
+body:has(main[data-theme="light"])::-webkit-scrollbar-thumb,
+body:has(main[data-theme="light"]) *::-webkit-scrollbar-thumb { background: #b95100; border: 2px solid #eaedef; border-radius: 999px; }
+body::-webkit-scrollbar-thumb:hover, body *::-webkit-scrollbar-thumb:hover { background: #ff6b00; }
 main[data-theme] p { color: var(--muted); }
 main[data-theme] h1, main[data-theme] h2, main[data-theme] h3,
 main[data-theme] strong, main[data-theme] label, main[data-theme] summary { color: var(--text); }

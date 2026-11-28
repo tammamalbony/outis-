@@ -210,27 +210,26 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         passTestStep(5,`Prompt is visible in the composer (${arrow.composerLength} characters); the arrow is visible and enabled.`);
       }
       if(testCheckpoint.current<=6&&stepLimit>=6){
-        beginTestStep(6,'Submitting the labeled test prompt once…');
+        beginTestStep(6,'Clicking the enabled send arrow once, then checking the result…');
         const before=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
-        if(!before)throw new Error('Could not confirm the prompt state before submission.');
+        if(!before)throw new Error('Could not inspect the composer before clicking. No action was taken.');
+        const promptKey=ctx.promptKey,prompt=ctx.prompt;
+        if(!promptKey||!prompt)throw new Error('Saved test prompt or delivery ID is missing. No action was taken.');
         if(before.composerEmpty&&ctx.userMessageCount!==undefined&&before.userMessageCount>ctx.userMessageCount){
-          const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:before.conversationUrl,dedupeKey:ctx.promptKey,text:ctx.prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
+          const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:before.conversationUrl,dedupeKey:promptKey,text:prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
           if(proof?.confirmed!==true)throw new Error(`Composer is empty, but the exact saved test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). It was not resent; the test chat was kept for inspection.`);
           markTestMilestone('submitted');
           passTestStep(6,'On resume, confirmed the exact latest user message, saved delivery ID, and empty composer; it was not sent again.');
         }else{
-          const promptKey=ctx.promptKey,prompt=ctx.prompt;
-          if(!promptKey||!prompt)throw new Error('Saved test prompt or delivery ID is missing; nothing was submitted.');
-          let submitted=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_SEND_DEMO',dedupeKey:promptKey,text:prompt}) as {submitted?:boolean;duplicate?:boolean;uncertain?:boolean;error?:string}|undefined;
-          if(submitted?.uncertain){
-            recordTestRetry(6,'Submission was uncertain; reloaded ChatGPT once and checked the exact latest user message and delivery ID. No resend was attempted.');
-            const recovered=await chatAdapter.reconcileSubmission(id,'https://chatgpt.com/',promptKey,prompt,true);
-            if(!recovered.confirmed)throw new Error(`${submitted.error??'ChatGPT did not confirm prompt submission.'} After one reload: ${recovered.reason} The prompt was not resent; the test chat was kept for inspection.`);
-            submitted={submitted:true,duplicate:true};
-          }
-          if(submitted?.error||submitted?.submitted!==true)throw new Error(submitted?.error||'ChatGPT did not confirm prompt submission. The test chat was kept for inspection.');
+          if(!before.composerVisible||before.composerEmpty||!before.composerText.includes(promptKey))throw new Error('The labeled test prompt is not already in the composer. Nothing was staged, cleared, or submitted.');
+          if(!before.arrowVisible||!before.arrowEnabled)throw new Error('The send arrow is not visible and enabled. Nothing was clicked; prepare the prompt and retry this step.');
+          const clicked=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_TEST_CLICK_SEND_ARROW'}) as {clicked?:boolean;error?:string}|undefined;
+          if(clicked?.clicked!==true)throw new Error(clicked?.error||'ChatGPT did not confirm a click on the send arrow. No other submission method was attempted.');
+          const accepted=await waitForTestSnapshot(id,value=>value.composerEmpty&&value.userMessageCount>before.userMessageCount,20_000,true);
+          const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:accepted.conversationUrl,dedupeKey:promptKey,text:prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
+          if(proof?.confirmed!==true)throw new Error(`The arrow was clicked once, but the exact test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). No retry or resend was attempted; the test chat was kept for inspection.`);
           markTestMilestone('submitted');
-          passTestStep(6,submitted.duplicate?'The exact last user message and empty composer confirmed delivery; no duplicate prompt was sent.':'ChatGPT confirmed the test prompt was submitted.');
+          passTestStep(6,'Clicked ChatGPT’s enabled arrow once; the composer cleared, a new user message appeared, and the exact prompt was verified.');
         }
       }
       if(testCheckpoint.current<=7&&stepLimit>=7){
