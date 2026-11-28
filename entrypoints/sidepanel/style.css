@@ -426,12 +426,12 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-status-rail-label { display: none; color: var(--text); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .chat-status-rail:hover .chat-status-rail-label, .chat-status-rail:focus-within .chat-status-rail-label { display: block; }
 .chat-status-rail-item:hover, .chat-status-rail-item:focus-visible { background: color-mix(in srgb,var(--text) 8%,var(--surface-soft)); box-shadow: 0 2px 8px #0005; outline: none; }
-.chat-status-rail-item:disabled { cursor: not-allowed; opacity: .55; }
+.chat-status-rail-item:disabled { cursor: not-allowed; }
 .chat-status-rail-item[data-icon="loading"][data-state="loading"] svg { animation: chat-status-spin 1.4s linear infinite; }
 @keyframes chat-status-spin { to { transform: rotate(360deg); } }
-.chat-status-rail-item[data-icon="loading"][data-state="loading"] { border-color: color-mix(in srgb,var(--danger) 65%,var(--line)); background: color-mix(in srgb,var(--danger) 12%,var(--surface-soft)); color: var(--danger); }
-.chat-status-rail-item[data-icon="loading"][data-state="ready"] { border-color: color-mix(in srgb,var(--success) 65%,var(--line)); background: color-mix(in srgb,var(--success) 12%,var(--surface-soft)); color: var(--success); }
-.chat-status-rail-item[data-state="unknown"] { opacity: .6; }
+.chat-status-rail-item[data-state="yes"], .chat-status-rail-item[data-state="ready"] { border-color: color-mix(in srgb,var(--success) 70%,var(--line)); background: color-mix(in srgb,var(--success) 14%,var(--surface-soft)); color: var(--success); }
+.chat-status-rail-item[data-state="no"], .chat-status-rail-item[data-state="loading"] { border-color: color-mix(in srgb,var(--danger) 70%,var(--line)); background: color-mix(in srgb,var(--danger) 14%,var(--surface-soft)); color: var(--danger); }
+.chat-status-rail-item[data-state="unknown"] { border-color: var(--line); background: var(--surface-soft); color: var(--muted); }
 .chat-status-rail-action { display: none; padding: 5px 4px 1px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 .chat-status-rail:hover .chat-status-rail-action, .chat-status-rail:focus-within .chat-status-rail-action { display: block; }
 .chat-test-header { display: grid; grid-template-columns: minmax(0,1fr); gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
