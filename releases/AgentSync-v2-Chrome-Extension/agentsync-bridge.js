@@ -220,6 +220,15 @@
     }
     return Boolean(sendControl(input));
   }
+  async function waitForArrowControl(input,settings){
+    const deadline=Date.now()+settings.sendControlTimeoutMs;
+    while(Date.now()<deadline){
+      const arrow=visibleButtons().find(button=>arrowIcon(button)&&enabledButton(button));
+      if(arrow)return true;
+      await wait(settings.pollIntervalMs);
+    }
+    return Boolean(visibleButtons().find(button=>arrowIcon(button)&&enabledButton(button)));
+  }
   function visibleError(){
     const text=[...document.querySelectorAll('[role="alert"],[data-testid*="error" i],[data-testid*="toast" i]')].filter(isVisible).map(element=>element.innerText||element.textContent||'').join(' ').slice(-2000);
     return /something went wrong|error generating|failed to generate|network error|unable to (?:load|send)|message failed/i.test(text);
@@ -425,9 +434,11 @@
     activeInput=composer()||activeInput;
     if(!exactAgentSyncDraft||freshHome)setComposerText(activeInput,message.text);
     if(!await waitForComposerText(activeInput,message.text,settings.composerTextTimeoutMs,settings))throw new Error('AgentSync could not verify the exact prompt in the composer. Nothing was submitted.');
-    if(!await waitForSendControl(activeInput,settings))throw new Error('ChatGPT send arrow did not appear for the non-empty composer. No prompt was submitted.');
+    if(message.requireArrow===true){
+      if(!await waitForArrowControl(activeInput,settings))throw new Error('The enabled ChatGPT send arrow is not visible. No test prompt was submitted.');
+    }else if(!await waitForSendControl(activeInput,settings))throw new Error('ChatGPT send arrow did not appear for the non-empty composer. No prompt was submitted.');
     activeInput=composer()||activeInput;
-    const send=sendControl(activeInput);
+    const send=message.requireArrow===true?visibleButtons().find(button=>arrowIcon(button)&&enabledButton(button)):sendControl(activeInput);
     if (!send) throw new Error('ChatGPT send arrow is unavailable.');
     send.click();
     const confirmation=await waitForSubmission(marker,message.text,before,settings);
@@ -588,7 +599,9 @@
         return false;
       }
       const settings=resolveTimings(message.timings);
-      submitText({conversationUrl:cleanUrl(),dedupeKey:key,text,allowFreshChat:true,timings:settings}).then(sendResponse,error=>sendResponse({error:error instanceof Error?error.message:'Test prompt submission failed.'}));
+      const snapshot=readTestSnapshot();
+      if(!snapshot.arrowVisible||!snapshot.arrowEnabled){sendResponse({error:'The test send button requires ChatGPT’s send arrow to be visible and enabled. No prompt was sent.'});return false;}
+      submitText({conversationUrl:cleanUrl(),dedupeKey:key,text,allowFreshChat:true,requireArrow:true,timings:settings}).then(sendResponse,error=>sendResponse({error:error instanceof Error?error.message:'Test prompt submission failed.'}));
       return true;
     }
     if(message?.type==='AGENTSYNC_TEST_ARCHIVE_CHAT'||message?.type==='AGENTSYNC_TEST_DELETE_CHAT'){

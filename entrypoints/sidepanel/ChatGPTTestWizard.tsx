@@ -13,6 +13,15 @@ type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCo
 const stages:Milestone[]=['voice','arrow','submitted','stop','voice-again'];
 const names:Record<Milestone,string>={voice:'Voice ready',arrow:'Arrow ready',submitted:'Prompt submitted',stop:'Generating', 'voice-again':'Voice returned'};
 const testRunSteps=['Open a fresh test chat','Clear any old draft','Confirm Chat mode','Set High effort','Wait for voice ready','Prepare demo prompt','Submit the prompt','Receive the expected reply','Delete the test chat'];
+function validateChatGPTTabUrl(rawUrl?:string){
+  if(!rawUrl)throw new Error('The active tab has no URL yet. Wait for it to finish loading, then try again.');
+  let url:URL;try{url=new URL(rawUrl);}catch{throw new Error('The active tab URL is not valid.');}
+  if(url.origin!=='https://chatgpt.com'||url.username||url.password)throw new Error('This tab is not on the approved ChatGPT site (https://chatgpt.com).');
+  const isNewChat=url.pathname==='/'||url.pathname==='';
+  const isConversation=/^\/c\/[A-Za-z0-9-]+\/?$/.test(url.pathname);
+  if(!isNewChat&&!isConversation)throw new Error('This ChatGPT page is not a supported new chat or conversation. Open chatgpt.com or a /c/ conversation URL.');
+  return {url:`${url.origin}${isNewChat?'/':url.pathname.replace(/\/$/,'')}`,kind:isNewChat?'new chat':'conversation'} as const;
+}
 const explanations:Record<Probe['state'],string>={
   LOADING:'The ChatGPT document is still loading. The wizard is waiting for its composer controls.',
   NEW:'The URL is chatgpt.com with no /c/ conversation, and the empty composer has an enabled voice button. This is a ready new chat.',
@@ -23,7 +32,7 @@ const explanations:Record<Probe['state'],string>={
   WAITING:'The page has not reached a recognized ready state. Check the composer and wait for its action button to become enabled.'
 };
 export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{savedAgents?:Agent[];embedded?:boolean}){
-  const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[error,setError]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));
+  const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -44,18 +53,29 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
     void browser.permissions.contains({origins:['https://chatgpt.com/*']}).then(async granted=>{
       if(!granted||cancelled)return;
       const [tab]=await browser.tabs.query({active:true,currentWindow:true});
-      if(!cancelled&&tab?.id!==undefined&&tab.url?.startsWith('https://chatgpt.com/'))void watchTab(tab.id);
+      if(!cancelled&&tab?.id!==undefined){try{validateChatGPTTabUrl(tab.pendingUrl||tab.url);void watchTab(tab.id);}catch{/* Unsupported active tabs stay unwatched until the user chooses one. */}}
     }).catch(()=>{});
     return()=>{cancelled=true;};
   },[]);
   async function watchTab(id:number){
     setBusy(true);setError('');setTabId(undefined);setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
     try{
-      if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted.');
       const tab=await browser.tabs.get(id);
-      if(!tab.url?.startsWith('https://chatgpt.com/'))throw new Error('Choose a ChatGPT tab at chatgpt.com.');
+      const validated=validateChatGPTTabUrl(tab.pendingUrl||tab.url);
+      if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted.');
       setTabId(id);
-    }catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
+      setTabSelectionStatus(`Using validated ChatGPT ${validated.kind}: ${validated.url}`);
+    }catch(e){const message=e instanceof Error?e.message:String(e);setTabSelectionStatus(`Active tab rejected: ${message}`);setError(message);}finally{setBusy(false);}
+  }
+  async function useActiveTab(){
+    setError('');setTabSelectionStatus('Checking the active tab URL…');
+    try{
+      const [tab]=await browser.tabs.query({active:true,currentWindow:true});
+      if(tab?.id===undefined)throw new Error('No active browser tab was found.');
+      const validated=validateChatGPTTabUrl(tab.pendingUrl||tab.url);
+      setTabSelectionStatus(`URL accepted · ${validated.kind}: ${validated.url}`);
+      await watchTab(tab.id);
+    }catch(e){const message=e instanceof Error?e.message:String(e);setError(message);setTabSelectionStatus(`URL rejected · ${message}`);}
   }
   async function openNew(){
     setBusy(true);setError('');setProbe(undefined);setSequence([]);setBaseline(undefined);nextStage.current=0;previousTestComposerText.current=false;previousTestUserCount.current=0;testSubmittedUntil.current=0;effortTouched.current=false;
@@ -306,6 +326,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       const key=manualDemoKey.current;
       const snapshot=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SNAPSHOT'}) as Probe|undefined;
       if(!key||!snapshot?.composerText.includes(`AgentSync delivery ID: ${key}`))throw new Error('No staged AgentSync demo prompt was found. Click Post demo text first; unrelated composer text will not be submitted.');
+      if(!snapshot.arrowVisible||!snapshot.arrowEnabled)throw new Error('The send arrow is not visible and enabled yet. Nothing was sent. Wait until ChatGPT shows the arrow, then try again.');
       const text=snapshot.composerText;
       const result=await browser.tabs.sendMessage(tabId,{type:'AGENTSYNC_TEST_SEND_DEMO',dedupeKey:key,text}) as {submitted?:boolean;duplicate?:boolean;uncertain?:boolean;error?:string}|undefined;
       if(result?.uncertain){
@@ -403,8 +424,9 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
       <div><p className="eyebrow">CHATGPT</p><h2 id={embedded?'status-live-chat-title':undefined}>{embedded?'Current chat':'ChatGPT test'}</h2><p>Run the test one step at a time. Review each result before continuing.</p></div>
       <div className="chat-test-toolbar">
         <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void openNew()}>{busy?'Opening…':'Open new chat'}</button>
-        <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={async()=>{const [tab]=await browser.tabs.query({active:true,currentWindow:true});if(tab?.id!==undefined)void watchTab(tab.id);else setError('No active browser tab was found.');}}>Watch active tab</button>
+        <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='RUNNING'} onClick={()=>void useActiveTab()}>Use active tab</button>
       </div>
+      {tabSelectionStatus&&<p className={`chat-test-tab-validation ${tabSelectionStatus.startsWith('URL accepted')||tabSelectionStatus.startsWith('Using validated')?'is-valid':'is-invalid'}`} role="status">{tabSelectionStatus}</p>}
     </header>
     <section className="panel chat-test-progress" aria-live="polite">
       <div className="chat-test-progress-heading"><div><p className="eyebrow">TEST WIZARD</p><h3>Step-by-step test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'}</p></div>
@@ -430,7 +452,7 @@ export default function ChatGPTTestWizard({savedAgents=[],embedded=false}:{saved
         <small className="chat-test-url">{probe.href}</small>
         {probe.hasConversationUrl&&<a className="chat-test-open-link" href={probe.conversationUrl} target="_blank" rel="noreferrer">Open this conversation</a>}
       </section>
-      <section className="panel chat-test-composer-quick"><div><h3>Composer test</h3><p>Post a labeled demo prompt, then send it or clear it.</p></div><pre className="chat-test-composer-preview">{probe.composerText?`${probe.composerText.slice(0,220)}${probe.composerText.length>220?'…':''}`:'Composer is empty.'}</pre><div className="chat-test-composer-buttons"><button type="button" disabled={controlBusy||!probe.composerVisible||!probe.composerEmpty} onClick={()=>void changeComposerText(false)}>Post demo text</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty} onClick={()=>void changeComposerText(true)}>Clear composer</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty||!manualDemoKey.current||!probe.composerText.includes(`AgentSync delivery ID: ${manualDemoKey.current}`)} onClick={()=>void sendDemoText()}>Send test prompt</button></div><small className="chat-test-control-note">Send is enabled for the labeled demo prompt posted by this test panel. It will not submit unrelated composer text.</small>{composerTestStatus&&<p className={composerTestStatus.includes('confirmed')||composerTestStatus.includes('sent')?'notice':'error'} role="status">{composerTestStatus}</p>}</section>
+      <section className="panel chat-test-composer-quick"><div><h3>Composer test</h3><p>Post a labeled demo prompt, then send it or clear it.</p></div><pre className="chat-test-composer-preview">{probe.composerText?`${probe.composerText.slice(0,220)}${probe.composerText.length>220?'…':''}`:'Composer is empty.'}</pre><div className="chat-test-composer-buttons"><button type="button" disabled={controlBusy||!probe.composerVisible||!probe.composerEmpty} onClick={()=>void changeComposerText(false)}>Post demo text</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty} onClick={()=>void changeComposerText(true)}>Clear composer</button><button type="button" className="secondary-button" disabled={controlBusy||!probe.composerVisible||probe.composerEmpty||!probe.arrowVisible||!probe.arrowEnabled||!manualDemoKey.current||!probe.composerText.includes(`AgentSync delivery ID: ${manualDemoKey.current}`)} onClick={()=>void sendDemoText()}>Send current prompt</button></div><small className="chat-test-control-note">Send works only for the labeled demo prompt posted here, and only while ChatGPT shows an enabled send arrow.</small>{composerTestStatus&&<p className={composerTestStatus.includes('confirmed')||composerTestStatus.includes('sent')?'notice':'error'} role="status">{composerTestStatus}</p>}</section>
       <details className="panel chat-test-details">
         <summary>Controls and diagnostics</summary>
         <p className="chat-test-details-intro">Optional tools for checking ChatGPT controls and inspecting the detected text.</p>

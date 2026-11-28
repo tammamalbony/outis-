@@ -409,6 +409,9 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-test-toolbar, .chat-test-primary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .chat-test-toolbar button, .chat-test-primary-actions button { padding: 7px 9px; font-size: 10px; }
 .chat-test-primary-actions button.secondary-button { border-color: var(--line); background: var(--surface-soft); color: var(--text); }
+.chat-test-tab-validation { margin: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: 10px; overflow-wrap: anywhere; }
+.chat-test-tab-validation.is-valid { border-color: color-mix(in srgb,var(--success) 48%,var(--line)); color: var(--success); }
+.chat-test-tab-validation.is-invalid { border-color: color-mix(in srgb,var(--danger) 45%,var(--line)); color: var(--danger); }
 .chat-test-progress { min-width: 0; }
 .chat-test-progress-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .chat-test-progress-heading h3 { margin: 0; font-size: 14px; }
@@ -435,6 +438,9 @@ main[data-theme] .app-tabs button { position: relative; min-width: 0; min-height
 .chat-test-composer-quick h3 { margin: 0; font-size: 12px; }
 .chat-test-composer-quick p { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
 .chat-test-composer-preview { max-height: 70px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 9px; }
+.chat-test-composer-quick .chat-test-composer-buttons { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.chat-test-composer-quick .chat-test-composer-buttons button:first-child { grid-column: 1 / -1; }
+.chat-test-composer-quick .chat-test-composer-buttons button:last-child { border-color: color-mix(in srgb,var(--orange) 70%,var(--line)); background: var(--orange); color: #1d1105; font-weight: 800; }
 .chat-test-composer-quick .chat-test-control-note { margin: 0; }
 .chat-test-composer-quick [role="status"] { margin: 2px 0 0; font-size: 10px; }
 .chat-test-waiting p { margin-bottom: 0; color: var(--muted); font-size: 11px; }
