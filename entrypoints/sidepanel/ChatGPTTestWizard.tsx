@@ -60,7 +60,7 @@ const statusIconPaths:Record<string,string>={
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
   const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'}))),[testClock,setTestClock]=useState(()=>Date.now());
-  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('live'),[savedTestChatLink,setSavedTestChatLink]=useState<SavedTestChatLink>();
+  const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false),[chatSubtab,setChatSubtab]=useState<'live'|'detector'|'test'>('test'),[savedTestChatLink,setSavedTestChatLink]=useState<SavedTestChatLink>();
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
   const previousTestComposerText=useRef(false);
@@ -219,7 +219,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     });
     nextStage.current=Math.max(nextStage.current,index+1);
   }
-  async function runOneClickTest(action:'START'|'RESUME'|'RESTART'='START'){
+  async function runOneClickTest(action:'START'|'RESUME'|'RESTART'='START',autoRun=false){
     if(testRunActive.current)return;
     if(action==='RESUME'&&!testContext.current){setError('This run has no saved test tab to resume. Choose Restart test.');return;}
     const restarting=action!=='RESUME';
@@ -228,7 +228,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     testStopRequested.current=false;testStopDetail.current='';testRunActive.current=true;setTestRunPhase('RUNNING');setControlBusy(true);setError('');setChatActionStatus('');effortTouched.current=false;
     const context=testContext.current;
     if(!context)setTabId(undefined);else setTabId(context.tabId);
-    const stepLimit=testCheckpoint.current;
+    const stepLimit=autoRun?testRunSteps.length-1:testCheckpoint.current;
     try{
       if(restarting&&action==='RESTART')setTestRunMessage('Restarting in a new temporary chat. Any previous failed test chat remains open for inspection.');
       let ctx=testContext.current;
@@ -634,7 +634,8 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       <div className="chat-test-progress-heading"><div><p className="eyebrow">DETAILED END-TO-END TEST</p><h3>Step-by-step automated test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step and validates its result.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'} · Total elapsed: {formatTestTime(runElapsedMs)}</p></div>
         <div className="chat-test-primary-actions">
           {testRunPhase==='RUNNING'?<button type="button" className="danger-button" onClick={()=>void stopOneClickTest()}>Stop</button>:<>
-            <button type="button" disabled={busy||controlBusy||retryExhausted||((testRunPhase==='FAILED'||testRunPhase==='STOPPED')&&!testContext.current)} onClick={()=>void runOneClickTest(testRunPhase==='IDLE'?'START':testRunPhase==='PASSED'?'RESTART':'RESUME')}>{testRunPhase==='IDLE'?'Start test':testRunPhase==='PAUSED'?'Next step':testRunPhase==='PASSED'?'Start new test':retryExhausted?'Retry limit reached':testContext.current?'Retry / verify this step':'Restart test'}</button>
+            <button type="button" disabled={busy||controlBusy||retryExhausted||((testRunPhase==='FAILED'||testRunPhase==='STOPPED')&&!testContext.current)} onClick={()=>void runOneClickTest(testRunPhase==='IDLE'?'START':testRunPhase==='PASSED'?'RESTART':'RESUME')}>{testRunPhase==='IDLE'?'Start step-by-step':testRunPhase==='PAUSED'?'Next step':testRunPhase==='PASSED'?'Start new test':retryExhausted?'Retry limit reached':testContext.current?'Retry / verify this step':'Restart test'}</button>
+            <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='FAILED'||testRunPhase==='STOPPED'||retryExhausted} onClick={()=>void runOneClickTest(testRunPhase==='IDLE'?'START':testRunPhase==='PAUSED'?'RESUME':'RESTART',true)}>{testRunPhase==='PAUSED'?'Auto-run remaining steps':testRunPhase==='PASSED'?'Auto-run new test':'Auto-run full test'}</button>
           </>}
           {testRunPhase!=='IDLE'&&testRunPhase!=='PASSED'&&testRunPhase!=='RUNNING'&&<button type="button" className="secondary-button" disabled={busy||controlBusy} onClick={()=>void runOneClickTest('RESTART')}>Restart</button>}
         </div>
