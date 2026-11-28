@@ -9,11 +9,14 @@ type TestRunPhase='IDLE'|'RUNNING'|'PAUSED'|'PASSED'|'FAILED'|'STOPPED';
 type TestRunResult={status:'waiting'|'running'|'passed'|'stopped'|'failed';detail:string};
 type TestStepMetric={attempts:number;startedAt?:number;durationMs:number};
 type TestRetryEvent={step:string;at:string;detail:string};
-type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCount?:number};
+type TestRunContext={tabId:number;promptKey?:string;prompt?:string;userMessageCount?:number;arrowClickAttempted?:boolean};
 type DetectorResult={name:string;status:'observed'|'error';detail:string;at:string;attempts:number};
 const stages:Milestone[]=['voice','arrow','submitted','stop','voice-again'];
 const names:Record<Milestone,string>={voice:'Voice ready',arrow:'Arrow ready',submitted:'Prompt submitted',stop:'Generating', 'voice-again':'Voice returned'};
 const testRunSteps=['Open a fresh test chat','Clear any old draft','Confirm Chat mode','Set High effort','Wait for voice ready','Prepare demo prompt','Submit the prompt','Receive the expected reply','Delete the test chat'];
+const testStepValidations=['Tab ID returned and URL validates as a supported ChatGPT new-chat page','Page reports loaded and composer is visible; any draft is confirmed cleared','Composer mode buttons report Chat pressed and Work not pressed','Effort control reports High (slider value 2)','New-chat URL, empty composer, enabled voice button, Chat mode, and High effort','Composer readback contains the unique delivery ID and enabled send arrow is visible','Arrow clicked once; composer cleared, user count increased, and exact last message plus delivery ID verified','Idle state, empty composer, enabled voice button, and expected reply text detected','Expected reply and idle state rechecked; delete confirmed and conversation changed'];
+const testStepRetryLimits=[0,2,1,1,2,2,1,2,1];
+const testStepWaitWindowsMs:(number|undefined)[]=[undefined,45_000,undefined,undefined,30_000,15_000,20_000,120_000,undefined];
 const detectorSteps=['Validate ChatGPT URL','Check page loaded','Detect composer','Read composer text','Check composer empty','Detect voice button','Detect send arrow','Detect stop button','Detect Chat or Work mode','Detect effort level','Check primary action'];
 function validateChatGPTTabUrl(rawUrl?:string){
   if(!rawUrl)throw new Error('The active tab has no URL yet. Wait for it to finish loading, then try again.');
@@ -54,7 +57,7 @@ const statusIconPaths:Record<string,string>={
   'assistant-message':'M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5ZM9 12h.01M12 12h.01M15 12h.01'
 };
 export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]}){
-  const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'})));
+  const [tabId,setTabId]=useState<number>(),[probe,setProbe]=useState<Probe>(),[observedTabUrl,setObservedTabUrl]=useState(''),[observedTabUrlValid,setObservedTabUrlValid]=useState<boolean>(),[activeTabLoading,setActiveTabLoading]=useState(false),[error,setError]=useState(''),[tabSelectionStatus,setTabSelectionStatus]=useState(''),[sequence,setSequence]=useState<{stage:Milestone;at:string}[]>([]),[baseline,setBaseline]=useState<number>(),[busy,setBusy]=useState(false),[controlBusy,setControlBusy]=useState(false),[effortDraft,setEffortDraft]=useState(1),[chatActionStatus,setChatActionStatus]=useState(''),[composerTestStatus,setComposerTestStatus]=useState(''),[testRunPhase,setTestRunPhase]=useState<TestRunPhase>('IDLE'),[testRunStep,setTestRunStep]=useState(-1),[testRunMessage,setTestRunMessage]=useState(''),[testRunResults,setTestRunResults]=useState<TestRunResult[]>(()=>testRunSteps.map(()=>({status:'waiting',detail:'Not started'}))),[testClock,setTestClock]=useState(()=>Date.now());
   const [railActionStatus,setRailActionStatus]=useState(''),[detectorResults,setDetectorResults]=useState<DetectorResult[]>([]),[detectorBusy,setDetectorBusy]=useState(false);
   const nextStage=useRef(0);
   const effortTouched=useRef(false);
@@ -74,6 +77,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
   const testStepMetrics=useRef<TestStepMetric[]>(testRunSteps.map(()=>({attempts:0,durationMs:0})));
   const testRetryEvents=useRef<TestRetryEvent[]>([]);
   const testRunStartedAt=useRef<number|undefined>(undefined);
+  useEffect(()=>{if(testRunPhase!=='RUNNING')return;const timer=window.setInterval(()=>setTestClock(Date.now()),250);return()=>window.clearInterval(timer);},[testRunPhase]);
   useEffect(()=>{
     let cancelled=false;
     void browser.permissions.contains({origins:['https://chatgpt.com/*']}).then(async granted=>{
@@ -181,7 +185,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     if(testStopRequested.current)throw new Error('Stop requested.');
     const metric=testStepMetrics.current[index];
     if(metric){metric.attempts+=1;metric.startedAt=Date.now();}
-    if(!testRunStartedAt.current)testRunStartedAt.current=Date.now();
+    if(!testRunStartedAt.current)testRunStartedAt.current=Date.now();setTestClock(Date.now());
     testCheckpoint.current=index;setTestRunStep(index);setTestRunMessage(message);
     setTestRunResults(old=>old.map((item,i)=>i===index?{status:'running',detail:message}:item));
   }
@@ -202,7 +206,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     });
     nextStage.current=Math.max(nextStage.current,index+1);
   }
-  async function runOneClickTest(action:'START'|'RESUME'|'RESTART'='START',autoRun=false){
+  async function runOneClickTest(action:'START'|'RESUME'|'RESTART'='START'){
     if(testRunActive.current)return;
     if(action==='RESUME'&&!testContext.current){setError('This run has no saved test tab to resume. Choose Restart test.');return;}
     const restarting=action!=='RESUME';
@@ -211,7 +215,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     testStopRequested.current=false;testStopDetail.current='';testRunActive.current=true;setTestRunPhase('RUNNING');setControlBusy(true);setError('');setChatActionStatus('');effortTouched.current=false;
     const context=testContext.current;
     if(!context)setTabId(undefined);else setTabId(context.tabId);
-    const stepLimit=autoRun?8:testCheckpoint.current;
+    const stepLimit=testCheckpoint.current;
     try{
       if(restarting&&action==='RESTART')setTestRunMessage('Restarting in a new temporary chat. Any previous failed test chat remains open for inspection.');
       let ctx=testContext.current;
@@ -220,8 +224,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         if(!await chatAdapter.ensureChatAccess())throw new Error('ChatGPT site access was not granted, so no test tab was opened.');
         const tab=await chatAdapter.openNew();
         if(tab.id===undefined)throw new Error('Chrome did not return a tab ID. The test stopped before it could inspect ChatGPT.');
+        const opened=await browser.tabs.get(tab.id);const validated=validateChatGPTTabUrl(opened.pendingUrl||opened.url);
         ctx={tabId:tab.id};testContext.current=ctx;setTabId(tab.id);
-        passTestStep(0,`Opened test tab ${tab.id} at chatgpt.com.${previousTestKept?' The previous incomplete test chat was kept open.':''}`);
+        passTestStep(0,`Opened test tab ${tab.id}; validated ${validated.url}.${previousTestKept?' The previous incomplete test chat was kept open.':''}`);
       }
       const id=ctx.tabId;
       if(testCheckpoint.current<=1&&stepLimit>=1){
@@ -287,7 +292,12 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         if(!before)throw new Error('Could not inspect the composer before clicking. No action was taken.');
         const promptKey=ctx.promptKey,prompt=ctx.prompt;
         if(!promptKey||!prompt)throw new Error('Saved test prompt or delivery ID is missing. No action was taken.');
-        if(before.composerEmpty&&ctx.userMessageCount!==undefined&&before.userMessageCount>ctx.userMessageCount){
+        if(ctx.arrowClickAttempted){
+          const reconciled=await chatAdapter.reconcileSubmission(id,before.conversationUrl||'https://chatgpt.com/',promptKey,prompt,true);
+          if(!reconciled.confirmed)throw new Error(`A prior arrow click was attempted. Reconciliation after one reload did not confirm the exact saved message: ${reconciled.reason} The prompt was not resent; inspect this chat or restart in a new test chat.`);
+          markTestMilestone('submitted');
+          passTestStep(6,'Reconciled the prior arrow-click attempt: exact prompt and delivery ID were found after reload. No second click was made.');
+        }else if(before.composerEmpty&&ctx.userMessageCount!==undefined&&before.userMessageCount>ctx.userMessageCount){
           const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:before.conversationUrl,dedupeKey:promptKey,text:prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
           if(proof?.confirmed!==true)throw new Error(`Composer is empty, but the exact saved test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). It was not resent; the test chat was kept for inspection.`);
           markTestMilestone('submitted');
@@ -295,8 +305,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         }else{
           if(!before.composerVisible||before.composerEmpty||!before.composerText.includes(promptKey))throw new Error('The labeled test prompt is not already in the composer. Nothing was staged, cleared, or submitted.');
           if(!before.arrowVisible||!before.arrowEnabled)throw new Error('The send arrow is not visible and enabled. Nothing was clicked; prepare the prompt and retry this step.');
+          ctx.arrowClickAttempted=true;
           const clicked=await chatAdapter.clickSendArrow(id);
-          if(clicked?.clicked!==true)throw new Error(clicked?.error||'ChatGPT did not confirm a click on the send arrow. No other submission method was attempted.');
+          if(clicked?.clicked!==true){if(clicked?.clicked===false)ctx.arrowClickAttempted=false;throw new Error(clicked?.error||'ChatGPT did not confirm a click on the send arrow. No other submission method was attempted.');}
           const accepted=await waitForTestSnapshot(id,value=>value.composerEmpty&&value.userMessageCount>before.userMessageCount,20_000,true);
           const proof=await browser.tabs.sendMessage(id,{type:'AGENTSYNC_VERIFY_LAST_USER_MESSAGE',conversationUrl:accepted.conversationUrl,dedupeKey:promptKey,text:prompt,allowNewConversation:true}) as {confirmed?:boolean;reason?:string}|undefined;
           if(proof?.confirmed!==true)throw new Error(`The arrow was clicked once, but the exact test prompt is not confirmed as the latest user message (${proof?.reason??'no proof returned'}). No retry or resend was attempted; the test chat was kept for inspection.`);
@@ -341,7 +352,7 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
         const metric=testStepMetrics.current[testCheckpoint.current];if(metric?.startedAt){metric.durationMs+=Date.now()-metric.startedAt;metric.startedAt=undefined;}
         setTestRunPhase('FAILED');setTestRunMessage(detail);setError(detail);setTestRunResults(old=>old.map((item,i)=>i===testCheckpoint.current?{status:'failed',detail}:item));
       }
-    }finally{testRunActive.current=false;setControlBusy(false);}
+    }finally{setTestClock(Date.now());testRunActive.current=false;setControlBusy(false);}
   }
   async function stopOneClickTest(){
     if(!testRunActive.current)return;
@@ -459,7 +470,8 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
     testRunSteps.forEach((step,index)=>{
       const metric=testStepMetrics.current[index];const result=testRunResults[index];
       const duration=(metric?.durationMs??0)+(metric?.startedAt?Date.now()-metric.startedAt:0);
-      lines.push(`${index+1}. ${step} | status: ${result?.status??'waiting'} | attempts: ${metric?.attempts??0} | elapsed: ${(duration/1000).toFixed(1)}s | ${result?.detail??'Not started'}`);
+      const retriesLeft=Math.max(0,(testStepRetryLimits[index]??0)-Math.max(0,(metric?.attempts??0)-1));
+      lines.push(`${index+1}. ${step} | status: ${result?.status??'waiting'} | validation: ${testStepValidations[index]} | attempts: ${metric?.attempts??0} | retries left: ${retriesLeft} | elapsed: ${(duration/1000).toFixed(1)}s | ${result?.detail??'Not started'}`);
     });
     lines.push('','Retries and recovery events:');
     if(testRetryEvents.current.length)for(const event of testRetryEvents.current)lines.push(`- ${event.at} | ${event.step} | ${event.detail}`);else lines.push('- None recorded.');
@@ -530,6 +542,9 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
   let statusUrlValid=observedTabUrlValid;
   if(statusUrl){try{statusUrlKind=validateChatGPTTabUrl(statusUrl).kind;statusUrlValid=true;}catch{statusUrlValid=false;}}
   const primaryButtonEnabled=probe?(probe.arrowVisible?probe.arrowEnabled:probe.stopVisible?probe.stopEnabled:probe.voiceVisible?probe.voiceEnabled:false):undefined;
+  const runElapsedMs=testRunStartedAt.current?testClock-testRunStartedAt.current:0;
+  const retryExhausted=(testRunPhase==='FAILED'||testRunPhase==='STOPPED')&&Boolean(testContext.current)&&((testStepMetrics.current[testCheckpoint.current]?.attempts??0)>(testStepRetryLimits[testCheckpoint.current]??0));
+  const formatTestTime=(milliseconds:number)=>`${(milliseconds/1000).toFixed(1)}s`;
   const pageIsLoaded=!activeTabLoading&&probe?.pageLoaded===true;
   const statusItems=[
     {icon:'link',label:statusUrlValid?'URL valid · click to copy':'URL valid',state:statusUrlValid===true?'yes':'no',detail:statusUrlValid===undefined?'No active tab URL has been checked.':statusUrlValid?`${statusUrl} · click to copy`:'This URL is not an approved ChatGPT URL.'},
@@ -588,17 +603,16 @@ export default function ChatGPTTestWizard({savedAgents=[]}:{savedAgents?:Agent[]
       <ol className="chat-test-sequence">{detectorSteps.map((step,index)=>{const result=detectorResults[index];const retrying=detectorBusy&&detectorResults.length===index+1&&detectorResults.at(-1)?.status==='error';return <li key={step} data-reached={result?.status==='observed'} data-failed={result?.status==='error'} data-active={retrying}><span>{result?.status==='observed'?'✓':result?.status==='error'?'!':index+1}</span><div><strong>{step}</strong><small>{result?`${result.attempts>1?`Attempt ${result.attempts} · `:''}${result.at} · ${result.detail}`:'Not checked yet'}</small></div></li>;})}</ol>
     </section>
     <section className="panel chat-test-progress" aria-live="polite">
-      <div className="chat-test-progress-heading"><div><p className="eyebrow">TEST WIZARD</p><h3>Step-by-step test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'}</p></div>
+      <div className="chat-test-progress-heading"><div><p className="eyebrow">DETAILED END-TO-END TEST</p><h3>Step-by-step automated test</h3><p>{testRunPhase==='IDLE'?'Start opens a temporary ChatGPT chat. Each click runs one step and validates its result.':testRunPhase==='PAUSED'?`Ready for step ${testCheckpoint.current+1} of ${testRunSteps.length}.`:testRunPhase==='PASSED'?'All steps passed.':'Follow the current step and review its status.'} · Total elapsed: {formatTestTime(runElapsedMs)}</p></div>
         <div className="chat-test-primary-actions">
           {testRunPhase==='RUNNING'?<button type="button" className="danger-button" onClick={()=>void stopOneClickTest()}>Stop</button>:<>
-            <button type="button" disabled={busy||controlBusy||((testRunPhase==='FAILED'||testRunPhase==='STOPPED')&&!testContext.current)} onClick={()=>void runOneClickTest(testRunPhase==='IDLE'?'START':testRunPhase==='PASSED'?'RESTART':'RESUME')}>{testRunPhase==='IDLE'?'Start test':testRunPhase==='PAUSED'?'Next step':testRunPhase==='PASSED'?'Start new test':testContext.current?'Retry this step':'Restart test'}</button>
-            <button type="button" className="secondary-button" disabled={busy||controlBusy||testRunPhase==='FAILED'||testRunPhase==='STOPPED'} onClick={()=>void runOneClickTest(testRunPhase==='IDLE'?'START':testRunPhase==='PAUSED'?'RESUME':'RESTART',true)}>{testRunPhase==='PAUSED'?'Run remaining steps':testRunPhase==='PASSED'?'Run test again':'Auto test'}</button>
+            <button type="button" disabled={busy||controlBusy||retryExhausted||((testRunPhase==='FAILED'||testRunPhase==='STOPPED')&&!testContext.current)} onClick={()=>void runOneClickTest(testRunPhase==='IDLE'?'START':testRunPhase==='PASSED'?'RESTART':'RESUME')}>{testRunPhase==='IDLE'?'Start test':testRunPhase==='PAUSED'?'Next step':testRunPhase==='PASSED'?'Start new test':retryExhausted?'Retry limit reached':testContext.current?'Retry / verify this step':'Restart test'}</button>
           </>}
           {testRunPhase!=='IDLE'&&testRunPhase!=='PASSED'&&testRunPhase!=='RUNNING'&&<button type="button" className="secondary-button" disabled={busy||controlBusy} onClick={()=>void runOneClickTest('RESTART')}>Restart</button>}
         </div>
       </div>
       {testRunMessage&&<p className={`chat-test-run-message ${testRunPhase==='FAILED'||testRunPhase==='STOPPED'?'error':testRunPhase==='PASSED'?'notice':''}`} role="status">{testRunMessage}</p>}
-      <ol className="chat-test-sequence">{testRunSteps.map((step,index)=>{const result=testRunResults[index]??{status:'waiting' as const,detail:'Not started'};const nextStep=testRunPhase==='PAUSED'&&index===testCheckpoint.current;return <li key={step} data-reached={result.status==='passed'} data-active={result.status==='running'||nextStep} data-failed={result.status==='failed'||result.status==='stopped'}><span>{result.status==='passed'?'✓':result.status==='failed'?'!':result.status==='stopped'?'Ⅱ':result.status==='running'?'…':index+1}</span><div><strong>{step}</strong><small>{nextStep?'Up next · ':''}{result.detail}</small></div></li>;})}</ol>
+      <ol className="chat-test-sequence">{testRunSteps.map((step,index)=>{const result=testRunResults[index]??{status:'waiting' as const,detail:'Not started'};const metric=testStepMetrics.current[index];const elapsed=metric.durationMs+(metric.startedAt?testClock-metric.startedAt:0);const attemptElapsed=metric.startedAt?testClock-metric.startedAt:elapsed;const retriesLeft=Math.max(0,testStepRetryLimits[index]-Math.max(0,metric.attempts-1));const waitWindow=testStepWaitWindowsMs[index];const waitLeft=waitWindow===undefined?undefined:Math.max(0,waitWindow-attemptElapsed);const nextStep=testRunPhase==='PAUSED'&&index===testCheckpoint.current;const safety=index===6?' Delivery recovery only; a retry will never click Send again.':index===8?' If deletion is uncertain, inspect the test chat before retrying.':'';return <li key={step} data-reached={result.status==='passed'} data-active={result.status==='running'||nextStep} data-failed={result.status==='failed'||result.status==='stopped'}><span>{result.status==='passed'?'✓':result.status==='failed'?'!':result.status==='stopped'?'Ⅱ':result.status==='running'?'…':index+1}</span><div><strong>{step}</strong><small><b>Confirm:</b> {testStepValidations[index]}</small><small>{nextStep?'Up next · ':''}{result.detail}</small><small><b>Time:</b> {formatTestTime(elapsed)} elapsed{waitWindow!==undefined?` · wait window up to ${Math.ceil(waitWindow/1000)}s`:''}{result.status==='running'&&waitLeft!==undefined?` · ${waitLeft>0?`${Math.ceil(waitLeft/1000)}s remaining`:'wait window elapsed; checking result'}`:''} · <b>Retries left:</b> {retriesLeft}{metric.attempts?` · attempts: ${metric.attempts}`:''}{safety}</small></div></li>;})}</ol>
       {testCheckpoint.current>0&&testRunPhase!=='RUNNING'&&<button type="button" className="secondary-button" onClick={()=>void copyTestReport()}>Copy test report</button>}
     </section>
     {error&&<p className="error" role="alert">{error}</p>}
