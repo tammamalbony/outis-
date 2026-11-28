@@ -5,6 +5,7 @@ import {conversationUrl} from './core';
 import {loadTimingSettings} from './extension-settings';
 const origin='https://chatgpt.com/*';
 const bridgeScriptId='agentsync-registered-chat-bridge-v1';
+const pageStatusScriptId='agentsync-chatgpt-page-status-v1';
 const wait=(milliseconds:number)=>new Promise(resolve=>setTimeout(resolve,milliseconds));
 export type ChatStatusSnapshot={href:string;hasConversationUrl:boolean;conversationUrl:string;pageLoaded:boolean;composerVisible:boolean;composerText:string;composerTextTruncated:boolean;composerMode:'CHAT'|'WORK'|'UNKNOWN';effort:'LOW'|'MEDIUM'|'HIGH'|'UNKNOWN';composerEmpty:boolean;composerLength:number;voiceVisible:boolean;voiceEnabled:boolean;arrowVisible:boolean;arrowEnabled:boolean;stopVisible:boolean;stopEnabled:boolean;pauseVisible:boolean;pauseEnabled:boolean;userMessageCount:number;latestUserMessage:string;latestUserMessageTruncated:boolean;latestReplyText:string;latestReplyTruncated:boolean;latestReplyFirstLine:string;latestReplyCopyStatus:'NOT_COPIED'|'COPY_CLICKED'|'COPIED';state:'LOADING'|'NEW'|'IDLE'|'WORKING'|'PROMPT_READY'|'SUBMITTED'|'WAITING';observedAt:string};
 type BridgeActionResult={confirmed?:boolean;clicked?:boolean;error?:string};
@@ -50,6 +51,14 @@ const port:TabPort={
   focusWindow:id=>browser.windows.update(id,{focused:true}),
   create:url=>browser.tabs.create({url}),
 };
+async function ensurePageStatusRail(){
+  if(!await browser.permissions.contains({origins:[origin]}))return false;
+  const registered=await browser.scripting.getRegisteredContentScripts({ids:[pageStatusScriptId]});
+  if(!registered.length)await browser.scripting.registerContentScripts([{id:pageStatusScriptId,matches:['https://chatgpt.com/*'],js:['agentsync-page-status.js'],runAt:'document_idle',persistAcrossSessions:true,world:'ISOLATED'}]);
+  const tabs=await browser.tabs.query({url:'https://chatgpt.com/*'});
+  for(const tab of tabs)if(tab.id!==undefined)try{await browser.scripting.executeScript({target:{tabId:tab.id},files:['agentsync-page-status.js']} as unknown as Parameters<typeof browser.scripting.executeScript>[0]);}catch{/* Chrome pages may be mid-navigation; the registered script runs when they next load. */}
+  return true;
+}
 export const chatAdapter = {
   async openNew(){return browser.tabs.create({url:'https://chatgpt.com/'});},
   async readStatusSnapshot(tabId:number){
@@ -84,7 +93,12 @@ export const chatAdapter = {
     return openConversation(port,url,granted);
   },
   async enableTabReuse(){return browser.permissions.request({origins:[origin]});},
-  async ensureChatAccess(){return await browser.permissions.contains({origins:[origin]})||browser.permissions.request({origins:[origin]});},
+  async ensureChatAccess(){
+    const granted=await browser.permissions.contains({origins:[origin]})||await browser.permissions.request({origins:[origin]});
+    if(granted)await ensurePageStatusRail();
+    return granted;
+  },
+  async ensurePageStatusRail(){return ensurePageStatusRail();},
   async reconcileSubmission(tabId:number,expectedUrl:string,dedupeKey:string,text:string,allowNewConversation=false){
     return reconcileAfterReload(tabId,expectedUrl,dedupeKey,text,allowNewConversation);
   },
@@ -106,6 +120,7 @@ export const chatAdapter = {
   async enableA0Bridge(chatUrls:readonly string[]){
     const matches=bridgeMatchPatterns(chatUrls);
     if(!await browser.permissions.contains({origins:[origin]})&&!await browser.permissions.request({origins:[origin]}))throw new Error('ChatGPT site access was not granted.');
+    await ensurePageStatusRail();
     await chatAdapter.disableA0Bridge(chatUrls);
     await browser.scripting.registerContentScripts([{id:bridgeScriptId,matches,js:['agentsync-bridge.js'],runAt:'document_idle',persistAcrossSessions:true,world:'ISOLATED'}]);
     const tabs=await browser.tabs.query({url:'https://chatgpt.com/c/*'});
@@ -125,6 +140,7 @@ export const chatAdapter = {
   },
   async ensureRegisteredChatTabs(chatUrls:readonly string[]){
     if(!await browser.permissions.contains({origins:[origin]})&&!await browser.permissions.request({origins:[origin]}))throw new Error('ChatGPT site access was not granted.');
+    await ensurePageStatusRail();
     const timings=await loadTimingSettings();
     const open=await browser.tabs.query({url:'https://chatgpt.com/c/*'});
     for(const rawUrl of [...new Set(chatUrls.map(conversationUrl))]){
